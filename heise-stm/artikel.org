@@ -1,0 +1,453 @@
+* Software Transactional Memory am Beispiel Clojure
+
+** Einleitung
+
+   Software Transactional Memory (STM) ist sicherlich eines der
+   prominentesten Features von Clojure.  Die Sprache verfügt daneben
+   noch über eine Vielzahl weiterer interessanter Eigenschaften, doch
+   dieser Artikel befasst sich mit jenem Kronjuwel von Clojures
+   Implementation.  Es zeigt sich, dass STM nur durch eine
+   Kombination anderer, grundlegender Eigenschaften möglich ist.
+   Dieser Artikel beleuchtet die Motivation für STM ebenso wie die
+   Grundlagen, Funktionsweise aber auch einige Fallstricke.
+
+** Hintergrund
+
+   Die Erstellung robuster und skalierender Programme für
+   Multiprozessor- oder Mehrkern-Architekturen ist eines der großen
+   Themen in der aktuellen Softwareentwicklung.  Die vorherrschende
+   Technologie ist heute sicherlich das zunächst einfach erscheinende
+   Locking, das sich jedoch mit zunehmender Komplexität der Programme
+   als immer schwieriger zu beherrschen erweist.  Dead- und
+   Live-Locks, Exceptions sowie verschachtelte Locks bereiten immer
+   häufiger Kopfzerbrechen.
+
+   Software Transactional Memory ist ein Werkzeug, den Zugriff auf
+   geteilte Resourcen leichter in den Griff zu bekommen.
+
+   Dabei ist die Idee von /Transaktionen/ an sich nicht neu.  Im
+   Bereich der Datenbanken sind Transaktionen ein gängiges Verfahren,
+   aber auch auf Speicherbereichen seit den 1980er-Jahren bekannt. 
+
+** Unveränderliche Daten
+
+   Die erste wichtige Grundlage für Clojures Implementation von STM
+   sind unveränderliche Daten und Datenstrukturen.  Dem liegt ein
+   Konzept zugrunde, das Identitäten, Werte und Zustände trennt.  Ein
+   /Wert/ ist etwa eine Zahl oder ein String, eine /Identität/ ist
+   eine mit einer Bedeutung behaftete Entität, die zu einem Zeitpunkt
+   mit einem Wert verbunden ist.  Die Verbindung einer Identität mit
+   einem Wert zu einer Zeit ist ein /Zustand/.
+   
+     "Ich bin ein String-Literal: ein Wert"
+     [:das :ist :ein :Vector :von :Keywords]
+     2010 ; Eine Zahl. Ein Jahr? Ein Filmtitel?
+
+     (def voriges-jahr 2010)
+     (def identitaet "def verknuepft Wert und Identität"))
+
+   Die Werte in Clojure-- bestehend nicht nur aus primitiven
+   Datentypen wie Zahlen und Strings sondern auch aus Datenstrukturen
+   wie Vektoren und Maps-- sind unveränderlich.  Einmal angelegt
+   ändern sie sich nicht mehr.  Dadurch können sie ohne
+   Komplikationen zwischen Threads ausgetauscht werden.
+
+** Persistente Datenstrukturen
+
+   Ein naive Implementation von unveränderlichen Datenstrukturen
+   würde etwa beim Hinzufügen eines Elements zu einem Vektor eine
+   komplette Kopie der bisherigen Werte anlegen.  Offensichtlich hat
+   das keine konstante Performance-Charakteristik wie Vektoren sie in
+   der Regel bieten.
+
+   Die Implementation von Hash-Maps und Vektoren in Clojure umgeht
+   dieses Problem, indem sie die Inhalte der Datenstrukturen in
+   Bäumen ablegt.  Diese haben maximal eine Tiefe von sechs Ebenen,
+   die jeweils über 32 Knoten verfügen.  Abbildung
+   [[persistent_bitpartition_tree2.pdf]] zeigt einen (gegenüber der
+   tatsächlichen Implementation etwas vereinfachten) Baum mit drei
+   Ebenen.  Als Index dienen die 32 Bits eines Integer, die in
+   Gruppen zu je fünf Bits für den Index in je einer Ebene verwendet
+   werden.
+
+   Solcherart organisiert lassen sich abgeleitete Vektoren leicht
+   anlegen, denn es muss höchstens der Pfad vom neuen oder
+   veränderten Datenelement bis hinauf zu einem neuen Wurzelknoten
+   kopiert werden.  Dieses illustriert Abbildung
+   [[persistent_changed_tree.pdf]].  Alle anderen Inhalte des Baums
+   können weiterhin genutzt werden, da die Unveränderlichkeit der
+   Daten garantiert, dass sie sich niemals ändern können ("shared
+   structure").
+
+   Der Name "persistente Datenstrukturen" suggeriert, dass Werte
+   persistiert werden.  Das bezieht sich jedoch nicht auf das
+   Speichern auf nicht-flüchtigen Medien, sondern auf den Erhalt
+   älterer Werte, nachdem eine solche Datenstruktur modifiziert wurde.
+   Clojures Datenstrukturen sind /vollständig persistent/, d.h. sie
+   erlauben auch von älteren Versionen abgeleitete, neue
+   Datenstrukturen.  Diese Historie, die durch den effizienten
+   Mechanismus, Kopien anzulegen, ermöglicht wird, spielt eine
+   wesentliche Rolle bei der Implementation von STM.
+
+** Referenztypen
+
+   Sich ändernde Zustände modelliert Clojure durch Verwendung von
+   indirekten Referenzen.  Eine Identität enthält ihre Daten nicht
+   direkt.  Stattdessen enthält sie nur einen Verweis auf den
+   jeweiligen Wert.  Dieser Verweis lässt sich leicht atomar
+   verändern, so dass er auf einen anderen Wert zeigt.  Abbildung
+   [[iref.pdf]] zeigt dieses exemplarisch anhand eines Vektors, dem ein
+   neues Element hinzugefügt wird.  Erst wenn der neue Vektor
+   komplett erzeugt ist, wird die Referenz dahingehend geändert, dass
+   sie nun auf den neuen Vektor zeigt.
+
+   Clojure bringt verschiedene Modelle in Form von verschiedenen
+   Referenztypen mit.  Der einfachste Referenztyp ist ein /Atom/, der
+   für die indirekte Referenz intern eine
+   =java.util.concurrent.atomic.AtomicReference= verwendet.
+   Mit Hilfe des Befehls =atom= wird ein Atom angelegt und mit
+   =swap!= kann das Atom mit einem neuen Wert verknüpft werden.
+
+   user> (def atm (atom "Eins"))
+   #'user/atm
+   user> (swap! atm (constantly 1))
+   1
+   user> (deref atm)
+   1
+
+   Das Beispiel zeigt, wie =swap!= eine Funktion zur Berechnung des
+   neuen Werts erwartet, die hier durch =constantly= erzeugt wird.
+   Dieses Verfahren ist in Clojure üblich, wohingegen eine andere
+   Form, die nicht die berechnende Funktion, sondern den neuen Wert
+   übergibt, selten auftaucht.  Der Aufruf von =deref=, für das auch
+   die Kurzform =@name-des-atom= existiert, ermittelt den aktuellen
+   Wert, auf den das Atom zeigt.
+
+   Die Funktion zum Berechnen des neuen Werts bekommt als Argument
+   den aktuellen Wert übergeben und sollte in der Regel keine
+   Seiteneffekte erzeugen.  Der Grund dafür ist, dass diese Funktion
+   bei Konflikten wiederholt werden wird und etwaige Seiteneffekt
+   dann mehrfach entstehen würden.
+
+   Soll nun ein Ensemble von Identitäten in einem Schritt verändert
+   werden, muss der Programmierer auf den Referenztypen /Ref/
+   zurückgreifen:
+
+   user> (def beispiel-ref (ref 10))
+   #'user/beispiel-ref
+   user> @beispiel-ref
+   10
+
+   Die Manipulation von Refs erfolgt transaktional und garantiert so,
+   dass ein anderer Thread während der Änderung des Zustands mehrerer
+   Identitäten niemals einen inkonsistenten Zustand vorfinden kann.
+   Refs sind also der Referenztyp, für den STM zur Anwendung kommt.
+
+   Weitere Referenztypen sind Vars und Agents, die hier nicht
+   behandelt werden.
+
+** Beispiele mit Refs
+
+   Wie das obige erste einfache Beispiel bereits zeigt, werden Refs
+   mit dem Befehl =ref= angelegt und-- ebenso wie Atoms-- mit =deref=
+   oder der syntaktisch gezuckerten Form mit dem =@= ausgelesen.
+
+   Werden Atoms mit =swap!= manipuliert, so übernimmt diese Aufgabe
+   bei Refs die Funktion =alter=.  Auch =alter= erwartet die Angabe
+   einer Funktion, die den neuen Wert auf Basis des bestehenden
+   berechnet.  Damit hören die Gemeinsamkeiten mit Atoms jedoch auf:
+
+   user> (def eine-ref (ref 1))
+   #'user/eine-ref
+   user> (alter eine-ref inc)
+   java.lang.IllegalStateException: No transaction running 
+   
+   Der Versuch, eine Ref außerhalb einer Transaktion zu manipulieren
+   führt zu einer Exception.  Der Befehl =dosync= bewirkt, dass
+   Clojure eine solche Transaktion startet:
+
+   user> (def plus-ref (ref 1))
+   #'user/plus-ref
+   user> (dosync (alter plus-ref inc))
+   2
+   user> @plus-ref
+   2
+   user> (dosync (alter plus-ref + 5))
+   7
+   user> @plus-ref
+   7
+
+   Im diesem Beispiel erhält =alter= die Funktion =inc= als Argument.
+   Diese erwartet ihrerseits eine Zahl als Argument und liefert eine
+   um 1 erhöhte Zahl zurück.  Der Zustand der Ref im Beispiel ist
+   eine Verknüpfung mit dem Wert 1.  Dieser Wert wird an die Funktion
+   =inc= übergeben und deren Rückgabewert bestimmt den neuen Wert,
+   mit dem die Ref am Ende der Transaktion verknüpft wird.  Im
+   zweiten Fall wird neben der Funktion =+= zusätzlich ein weiteres
+   Argument, die Zahl 5, an =alter= übergeben.  In diesem Falle sorgt
+   =alter= dafür, dass die Funktion sowohl den Zustandswert der Ref
+   als auch das zusätzliche Argument übergeben bekommt, es wird im
+   Hintergrund also =(+ 2 5)= ausgeführt.  
+
+   Im Falle von Atoms gilt es, Seiteneffekte in der Funktion zur
+   Berechnung des neuen Werts zu vermeiden.  Bei Refs betrifft das
+   den gesamten Rumpf von =dosync=, also alle Ausdrücke, die
+   innerhalb von =dosync= auftauchen.
+
+   Der wesentliche Unterschied zwischen Refs und Atoms besteht darin,
+   dass die Manipulation mehrerer Refs in einer Transaktion
+   synchronisiert erfolgt.  Das folgende Beispiel definiert mit
+   =defn= dazu zwei Funktionen, die in der Transaktion verwendet
+   werden und ihre jeweiligen Aufrufe in einem Atom zählen.  Dies ist
+   ein Seiteneffekt, um die Arbeit der STM-Maschinerie zu
+   untersuchen: Nach dem Ablauf der Transaktionen gibt das Atom einen
+   Hinweis auf die Konflikte, die zu Wiederholungen führten.  Die
+   beiden Refs =hochzaehler= und =runterzaehler= werden mit 0
+   bzw. 100 initialisiert und in der mit =dotimes= eingeleiteten
+   Schleife von 100 verschiedenen Threads bearbeitet.  Der Code der
+   Schleife sollte auch ohne weitere Kenntnis von Clojure
+   verständlich sein: =(new Thread ...)= legt ein neues Thread-Objekt
+   an, dessen Konstruktor die Funktion =stm-funktion= erhält.
+   Clojures Funktionen implementieren =Runnable= und =Callable=,
+   können also ohne weitere Umschweife verwendet werden.  Danach ist
+   =(.start ...)= lediglich der Methodenaufruf auf dem Thread-Objekt,
+
+   (def kollisionen (atom 0))
+   
+   (def hochzaehler (ref 0))
+   
+   (def runterzaehler (ref 100))
+   
+   (defn inc-mit-zaehl [value]
+     (swap! kollisionen inc)
+     (inc value))
+   
+   (defn dec-mit-zaehl [value]
+     (swap! kollisionen inc)
+     (dec value))
+   
+   (defn stm-funktion []
+     (dosync
+      (alter hochzaehler   inc-mit-zaehl)
+      (alter runterzaehler dec-mit-zaehl)))
+   
+   user> (dotimes [_ 100]
+	   (.start (new Thread stm-funktion)))
+
+   Das Ergebnis überzeugt:
+
+   user> @hochzaehler
+   100
+   user> @runterzaehler
+   0
+
+   Beide Refs haben die erwarteten Werte.  Würde ein Thread parallel
+   laufen, der permanent die Werte der beiden Refs ausliest, würde er
+   niemals einen Zustand zu sehen bekommen, in dem die Summe der
+   beiden nicht 100 ist.  Stellt sich noch die Frage nach den
+   Kollisionen.  Würden die Funktionen =inc-mit-zaehl= und
+   =dec-mit-zaehl= nur je 100-mal aufgerufen worden sein, müsste das
+   Atom =kollisionen= den Wert 200 haben.
+
+   user> @kollisionen
+   235
+
+   Es zeigt sich also, dass 35 Transaktionen nicht erfolgreich
+   verliefen und wiederholt werden mussten.  Dieses Ergebnis ist
+   abhängig vom Laufzeitverhalten.
+
+** Hintergrund
+
+   Clojures Implementation von Software Transaktional Memory findet im
+   Java-Teil von Clojure statt und verteilt sich dort im wesentlichen
+   auf die Klasse =LockingTransaction= sowie die Implementationen von
+   Refs und Agents. (Agents integrieren sich in das
+   Transaktionsverfahren, spielen in diesem Artikel jedoch keine
+   Rolle.)  Die notwendigen Mechanismen für die Hintergrundarbeiten
+   entnimmt Clojure dem Paket =java.util.concurrent=.  Der Befehl
+   =dosync= ist als Makro implementiert und erlaubt es so, den Aufruf
+   der Java-Methoden zu verstecken.
+
+   Abbildung [[stm.eps]] zeigt exemplarisch zwei Transaktionen, die mit
+   zwei Refs arbeiten.  Im mittleren Bereich der Abbildung sind die
+   Zustände der Refs dargestellt, darüber und darunter zeigen die
+   grauen Kästen die Arbeit der beiden Transaktionen.  Wie im gerade
+   gezeigten Beispiel wird einerseits von 100 runter- andererseits
+   von 0 hochgezählt.  Die untere Transaktion stellt dabei einen
+   Konflikt fest, wenn sie ihre berechneten Werte schreiben will und
+   wird wiederholt.
+
+   Von zentraler Bedeutung in der Implementation ist die Verwendung
+   der Klasse =java.lang.ThreadLocal=, die sicherstellt, dass ein
+   Thread zu einem Zeitpunkt immer nur an maximal einer Transaktion
+   teilnimmt.  Sollte ein Thread auf eine zweite Transaktion stoßen,
+   verschmelzen beide Transaktionen.
+
+   Genauer betrachtet versucht die erste Transaktion, die die zu
+   schreibenden Werte berechnet hat, eventuelle andere Transaktionen
+   zum Neustart zu bewegen.  Falls das nicht funktioniert, startet
+   sie sich selbst neu.  Bei Erfolg beginnt die Phase des Commit.
+   Zunächst holt sich die Transaktion in einer festgelegten
+   Reihenfolge die notwendigen Write-Locks für alle zu verändernden
+   Refs, danach schreibt die Transaktion die neuen Werte.  Dieser
+   Prozess wird durch die hier nicht weiter betrachteten Validatoren
+   sowie die alternative Funktion =commute=, die anstelle von =alter=
+   verwendet werden kann, noch etwas verkompliziert.
+
+** Historische Werte
+
+    Clojures Transaktionen verwenden /Snapshot Isolation/ und
+    /Multiversion Concurrency Control/ (MVCC).  Die Transaktionen
+    bekommen ihre eigene Sicht auf das zu behandelnde Ensemble von
+    Refs, sie bekommen einen isolierten Snapshot eines konsistenten
+    Zustands der Daten.  Die Änderungen, die eine Transaktion an den
+    Werten vornimmt, wird eine andere Transaktion nicht sehen.  Diese
+    Garantie ist Bestandteil von MVCC, das für jede Ref eine Historie
+    von Werten mitführt, die von verschiedenen Transaktionen verwendet
+    wird.  Jede Transaktion bekommt einen Start und einen
+    Lesezeitpunkt auf ihre Daten (implementiert als absoluter Zähler
+    durch ein =AtomicLong=), die Refs halten ihre historischen Werte
+    in einer verketteten Liste und wann immer ein Thread innerhalb
+    einer Transaktion auf die Werte der Refs zugreift, ermittelt
+    Clojure diesen unter Berücksichtigung des Lesezeitpunkts und der
+    vorhandenen historischen Werte.
+
+    Kommt es zu einem Fall, in dem die Historie einer Ref den
+    passenden Wert nicht mehr enthält, wächst die Historie dynamisch
+    an.  Die Historie wird in der Ref selbst gespeichert und die
+    Anzahl verfügbarer Versionen lässt sich beeinflussen.  Dazu
+    versteht die Konstruktionsfunktion =ref= die Schlüsselwörter
+    =:min-history= und =:max-history=.
+
+    user> (def ref-hist (ref 0 :min-history 5 :max-history 20))
+    #'user/ref-hist
+    user> (.getHistoryCount ref-hist)
+    0
+    user> (dosync (alter ref-hist inc))
+    1
+    user> (.getHistoryCount ref-hist)
+    1
+    user> (dotimes [_ 10] 
+             (dosync (alter ref-hist inc)))
+    nil
+    user> (.getHistoryCount ref-hist)
+    5
+
+    Diese gespeicherten Werte helfen, Konflikte in Transaktionen zu
+    vermeiden, da jeder Versuch einen Wert zu lesen, der nicht in der
+    Historie existiert, zur Wiederholung der betroffenen Transaktion
+    führt. 
+
+** Fallstricke
+
+   Anhand der Entwicklung der History einer Ref zeigt das folgende
+   Beispiel ein mögliches Problem, wenn die Transaktionen sich in
+   ihrer Laufzeit zu sehr unterscheiden.
+
+   ;; Dank auch an Chris Houser, auf dessen Zusammenarbeit im
+   ;; IRC-Channel von Clojure dieser Code beruht!
+
+   (defn stresstest [hmin hmax]
+     (let [r (ref 0 :min-history hmin :max-history hmax)
+	   langsame-versuche (atom 0)]
+       
+       ;; langsame Transaktion in Future-Objekt
+       (future      
+	 (dosync (swap! langsame-versuche inc)
+		 (Thread/sleep 200)
+		 @r)
+	 (println "ref ist:" @r
+		  "history:" (.getHistoryCount r)
+		  "nach:"    @langsame-versuche "versuchen"))
+       ;; viele schnelle Transaktionen
+       (dotimes [i 500]
+	 (Thread/sleep 10)
+	 (dosync (alter r inc))) 
+       :done))
+
+
+   Diese Funktion definiert einen Stresstest für eine Ref.  Damit die
+   weiteren Aufrufe einfacher erfolgen können, kommen hier einige
+   Konstrukte zum Einsatz, die in diesem Artikel noch nicht behandelt
+   wurden.  Zunächst sorgt =let= dafür, dass die Ref und ein Atom, mit
+   dem langsame Versuche gezählt werden, dieses Mal als lokale
+   Variablenbindungen entstehen.  Zudem erzeugt das Beispiel mit der
+   Funktion =future= hinter den Kulissen ein =Future=-Objekt, dessen
+   Code in einem anderen Thread ausgeführt wird.  Die Form
+   =(Thread/sleep ...)= mit dem Slash ruft eine statische Java-Methode
+   auf.
+
+   Ein erster Durchlauf mit den Default-Werten für die History zeigt,
+   dass es für die langsame Transaktion viele Wiederholungen gab,
+   bevor die schnellen Threads aus der =dotimes=-Schleife fertig
+   waren:
+   
+   user> (stresstest 0 10)
+   :done
+   ref ist: 500 history: 10 nach: 27 versuchen
+
+   Die Reihenfolge der Ausgabe des Rückgabewerts =:done= und der
+   Ausgabe des anderen Threads zeigt, dass die schnellen
+   Transaktionen erst komplett beendet wurden, bevor die langsame
+   Transaktion erfolgreich durchgeführt werden konnte.
+
+   Ein zweiter Test hilft der langsamen Transaktion, die ja nur
+   lesend auf die Ref zugreift, indem die History vergrößert wird.
+   Dann kommt die die langsame Transaktion zum Abschluss, bevor alle
+   schnellen durchgelaufen sind, was daran erkennbar ist, dass die
+   Ausgabe vor dem ":done" erfolgt:
+
+   user> (stresstest 0 30)
+   ref ist: 392 history: 19 nach: 20 versuchen
+   :done
+
+   Noch schneller kann die langsame lesende Transaktion erfolgreich
+   durchlaufen werden, wenn die History nicht erst durch Konflikte
+   anwachsen muss, sondern bereits mit einer gewissen Mindestgröße
+   startet:
+   
+   user> (stresstest 15 30)
+   ref ist: 117 history: 20 nach: 6 versuchen
+   :done
+
+   Jetzt hat die langsame Transaktion lediglich noch sechs Versuche
+   gebraucht, bis sie erfolgreich durchgeführt werden konnte.
+
+   Diese Betrachtung zeigt, dass auf die Anwender von STM neue,
+   andersartige Probleme zukommen.  Sie zeigt zudem, dass sich in der
+   Implementation von STM einige Details befinden, die zu kennen, es
+   den Entwicklern erleichtern sollte, robuste Programme zu
+   schreiben.  Im Vergleich zum Locking-Verfahren ist jedoch die
+   Komplexität für Entwickler geringer.
+
+** Probleme in der Wildnis
+
+   Die Mailingliste sowie auch der IRC-Channel haben auch andere
+   Probleme bekannt gemacht.  So fiel einem Entwickler auf, dass
+   seine Applikation, die viele Zufallszahlen erzeugt, nicht gut
+   skalierte.  Der Grund dafür ist, dass die Funktion =rand-int=
+   einen Flaschenhals darstellt.  Es wird ein einziger
+   Zufallszahlengenerator von allen Threads verwendet.  Javas Garbage
+   Collector arbeitet in der Standardeinstellung ebenfalls nicht
+   parallel [[http://groups.google.com/group/clojure/t/e1b742700acde46a]]
+   und eine Diskussion über die Funktion von =memoize= im Kontext von
+   Multi-threaded-Programmen wurde von Meikel Brandmeyer
+   zusammengefasst:
+   [[http://kotka.de/blog/2010/03/memoize_done_right.html]].  Ein
+   bekanntes Problem, das aber auf der Mailingliste noch keine großen
+   Spuren hinterlassen hat, ist /Write Skew/. Es tritt auf, wenn
+   Validatoren verwendet werden, um die Konsistenz der Daten
+   sicherzustellen.  Jeder Validator agiert aber nur für eine
+   einzelne Ref und es findet keine Prüfung auf ein Ensemble von
+   Werten statt.  Das kann dazu führen, dass die einzelnen
+   Manipulationen valide sind, ihre Gesamtheit jedoch nicht.
+
+** Fazit
+
+   Clojure bietet mit seiner Implementation von STM eine einfache
+   Semantik, um mehrere Identitäten koordiniert zu manipulieren.
+   Diese Lösung ist nur durch wichtige Grundlagen, vor allem die
+   unveränderlichen Daten, möglich.  Somit vereinfacht Clojure die
+   Handhabung von Multi-threaded-Programmen, enthebt den Entwickler
+   jedoch nicht von der Verantwortung, die Mechanismen seines
+   Programms zu durchschauen.
