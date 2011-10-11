@@ -1,0 +1,58 @@
+
+#+TITLE Entwurf Clojure-Concurrency-Artikel für Heise Developer
+#+AUTHOR Stefan Kamphausen
+
+* Einleitung
+
+  - Grundlegende Überlegungen (3.1 Zustand und Zeit) führen zur
+    Erkenntnis, das unveränderbare Datenstrukturen gut und wichtig
+    sind. 
+
+  - Gepaart mit effektiver Implementation der Datenstrukturen (3.2.2
+    Hintergrund: Persistente Datenstrukturen), indirekten Referenzen
+    (3.3.2) und dem funktionalen Paradigma ergibt sich die wichtige
+    Grundlage für die Concurrency-Features von Clojure.
+
+  - Vor allem durch seine Implementation von STM ist Clojure bekannt
+    geworden.  Microsoft hat das bei C# vor Kurzem aufgegeben, da sie
+    die Grundlagen nicht voraussetzen können.  Daran ist der Einfluss
+    des Zusammenspiels der verschiedenen Design-Entscheidungen
+    erkennbar.
+
+* Referenztypen und Charakteristika
+
+  - Var:
+    - Thread-local Binding, kein Sync notwendig.
+
+  - Atom
+    - Eine Identität
+    - Änderungen sichtbar über Thread-Grenzen, Sync notwendig.
+
+  - Ref
+    - Mehrere Identitäten
+    - Änderungen sichtbar über Thread-Grenzen, Sync notwendig.
+    - STM
+    - Integration mit Agents (s.u.)
+
+  - Agent
+    - Queue
+    - Ähnlich Message-Passing
+    - Thread-Pool bereits enthalten
+
+* STM
+
+  Ein etwas ausführlicheres Beispiel, das STM anwendet.  Evtl. eine
+  gekürzte Version des genetischen Algorithmus aus dem Buch, der auch
+  Agents zur Steuerung des Gesamtsystems verwendet?
+
+  - Hintergründe?
+
+  - Fallstricke?
+
+* Hintergrund
+
+  Tieferer Einblick in ein ausgewähltes Thema, um sich vom
+  Tilkov-Artikel abzugrenzen.  
+  - Implementation der Datenstrukturen oder Transiente Datenstrukturen?
+  - Oder doch noch etwas anderes?
+    

@@ -1,0 +1,268 @@
+* Concurrency
+
+  Dem englischen Begriff "Concurrency" haftet durch seinen Wortstamm
+  die passende Konnotation von miteinander um Ressourcen
+  konkurrierenden Einheiten an, was den Kern des Concurrent
+  Programming gut beschreibt.  Die Threads eines Prozesses
+  konkurrieren um die Ressourcen: die Daten, die der Prozess im
+  Speicher vorhält.  Clojure bietet (über die Mechanismen von Java
+  hinaus) kein Werkzeug, um die Veränderungen der Welt außerhalb des
+  eigenen Prozesses-- in einem verteilten System-- zu verarbeiten;
+  Clojure konzentriert sich auf lokale Veränderungen im eigenen
+  Prozess, die durch verschiedene Threads entstanden sein können.
+
+** Varianten 
+
+   Es werden zwei Arten von parallelem Arbeiten unterschieden.  Zum
+   Ersten die Beschleunigung einer langwierigen Verarbeitung, indem
+   Teile einer Berechnung auf verschiedene Prozessoren verteilt
+   werden.  Deren Ergebnisse laufen dann an einer zentralen Stelle
+   zusammen und liefern somit das endgültige Resultat.  Ein Job wird
+   durch Verteilung auf Recheneinheiten in seiner Gesamtheit
+   beschleunigt.
+
+   Eine zweite Art von paralleler Verarbeitung betrifft die
+   gleichzeitige Verarbeitung von mehreren Aufgaben oder Jobs, die
+   nicht gleichartig sein müssen.  Typische Anwendungsfälle sind
+   Webserver, die gleichzeitige Besucher möglichst schnell bedienen
+   müssen, oder aber auch clientseitige Programme, die in der
+   Oberfläche noch flüssig reagieren sollen, während die Applikation
+   im Hintergrund gerade eine Aufgabe ausführt.  Dass kann
+   beispielsweise eine komplizierte Berechnung oder eine Kommunikation
+   über das Netzwerk sein.  Diese Form der Parallelität gewinnt
+   zusehends an Bedeutung.
+
+   Beiden gemein ist, dass sie gelegentlich auf gemeinsame Ressourcen
+   zugreifen müssen, und das birgt Potenzial für viele Konflikte.
+
+* Zustand und Zeit
+
+  Um die Lösungen von Clojure zu verstehen und sie sinnvoll einsetzen
+  zu können, sind einige Sätze zu den Begriffen Zustand, Identität und
+  Wert vonnöten. CITE INFOQ, clojure.org/... 
+
+  Eine Identität in diesem Zusammenhang ist eine logische Einheit, die
+  im Laufe der Zeit verschiedene Zustände einnehmen kann.  Ein solcher
+  Zustand einer Identität ist die Verknüpfung mit einem Wert zu einem
+  bestimmten Zeitpunkt, und ein Wert schließlich ist eine
+  unveränderliche Größe.
+
+  Die Zahl Elf ist die Zahl Elf.  Sie ist es jetzt, sie
+  war es gestern, und sie wird es morgen auch noch sein.  Die Zahl Elf
+  ist unveränderlich; sie ist ein Wert.  
+
+  Bei Zahlen und Namen entspricht diese Anschauung noch der der meisten
+  Programmierer. Es gilt aber, dieses Konzept auch auf zusammengesetzte
+  Datentypen wie Listen, Vektoren oder Maps auszuweiten.  Eine Liste mit
+  den Zahlen Eins, Zwei und Drei wird immer diese Liste bleiben.  Würde
+  eine Vier hinzugefügt, entstünde eine neue Liste mit den Zahlen Eins,
+  Zwei, Drei und Vier. 
+
+  Wenn aber die Anzahl der Spieler einer Fußballmannschaft gefragt
+  ist, so wird nach einer Identität gefragt, nach etwas mit Bedeutung.
+  Zu einem bestimmten Zeitpunkt entsteht dann eine Verknüpfung
+  zwischen dieser Anzahl und der Zahl Elf.  Gleichermaßen kann nach
+  der minimal notwendigen Anzahl der Punkte, um im Tischtennis einen
+  Satz zu gewinnen, gefragt sein, was ebenfalls zu einer Verknüpfung
+  mit der Elf führt.  Allerdings hat sich dieser Zustand-- die
+  Verknüpfung von Identität und Wert-- im Jahre 2001 geändert. Vorher
+  war der Zustand der Identität "minimal notwendige Anzahl der Punkte,
+  um im Tischtennis einen Satz zu gewinnen" eine Verknüpfung mit dem
+  Wert 21.
+
+  Clojure gibt uns Werkzeuge, um Veränderungen an Identitäten im Laufe
+  der Zeit zu handhaben.
+
+* Unveränderliche Daten
+
+  Ein wesentlicher Bestandteil von Clojures Concurrency-Maschinerie
+  sind die Datenstrukturen, etwa Vektore und (Hash-)Maps.  Für das
+  schlüssige Gesamtbild von Clojure sind zwei Eigenschaften dieser
+  Datenstrukturen von großer Bedeutung.  Zum einen sind die
+  gespeicherten Informationen nicht mehr zu verändern, zum anderen ist
+  die Implementation hinreichend geschickt, dass zu großer Overhead
+  beim Kopieren vermieden wird.
+
+  Datentypen in Clojure enthalten Werte.  Werte sind unveränderlich.
+  Alle Daten in Clojure sind somit unveränderlich, immutable.  Diese
+  Feststellung ist von zentraler Bedeutung.  Wenn ein Programm einer
+  Liste einen Wert hinzufügen will, muss es eine neue Liste anlegen,
+  in der alle alten Werte und der neue Wert enthalten sind.  Wenn ein
+  Programm zu einer zuvor gemerkten Zahl einen weiteren Wert addieren
+  will, wird die Addition eine neue Zahl zurückliefern. Eine Zuweisung
+  in der Form x = x + 2 ist für Clojures Datentypen nicht vorgesehen;
+  für veränderliche Daten existieren spezielle Referenztypen.
+
+* Persistente Datenstrukturen
+
+  In den meisten Fällen bedeutet "Persistieren" das Speichern von
+  Daten auf einen nichtflüchtigen Datenträger, meist eine Festplatte.
+  Eine "persistente Datenstruktur" hingegen hat mit Persistenz im
+  Sinne von dem Erhalt der Werte auch nach einem Stromausfall nichts
+  zu tun, sondern bezeichnet das beobachtete Verhalten, dass nach
+  einer Manipulation der Datenstruktur auch die vorherige Version noch
+  vorhanden ist~\cite{ghosh10:_grokk_funct_data_struc}.  In diesem
+  Sinne sind Clojures persistente Datenstrukturen nichtflüchtig.  Die
+  von Sprachen wie Java oder C bekannten Datenstrukturen hingegen, die
+  eine direkte Manipulation erlauben, sind flüchtig: Nach einer
+  Manipulation ist die vorherige Version nicht mehr erreichbar.
+
+  Clojures Datenstrukturen sind unveränderlich, das Hinzufügen eines
+  Wertes zu einer Liste von Werten erzeugt eine neue Datenstruktur.
+  In einer naiven Umsetzung, die eine neue Datenstruktur durch eine
+  vollständige Kopie erzeugt, könnte das sehr viel Speicher benötigen
+  und die Performance spürbar negativ beeinflussen.  Clojure begegnet
+  dem Problem mit einer effizienten Organisation von persistenten
+  Datenstrukturen, bei der sich die Datenstrukturen die im Speicher
+  vorgehaltenen Werte teilen ("Shared Structure").  Wird einem Vektor
+  mit zehn Werten ein weiterer Wert hinzugefügt, entsteht ein Vektor,
+  der Verknüpfungen zu den ersten zehn Werten enthält und zusätzlich
+  noch eine weitere Verknüpfung zum neuen Wert.
+
+   Die wichtige Voraussetzung dafür ist, dass die gemeinsam
+   verwendeten Daten sich nicht verändern können.
+
+
+** Organisation in Bäumen
+
+   Die Organisation der Dateninhalte übernehmen sehr flache
+   Baum-Strukturen, die aus bis zu fünf Ebenen bestehen.  In der
+   ersten Ebene befindet sich der Root-Knoten dieses Baums, und dieser
+   Knoten hat Platz für 32 Objekte.  Diese Objekte sind, solange die
+   Datenstruktur nur bis zu 32 Objekte aufnehmen muss, die zu
+   speichernden Dateninhalte.  Beim Einfügen des 33. Wertes wird eine
+   neue Ebene im Baum erzeugt.  Dann enthält der Root-Knoten nicht
+   mehr 32 Verweise auf Dateninhalte, sondern auf 32 neue Knoten, die
+   ihrerseits die zu speichernden Objekte beinhalten.  In dieser Ebene
+   ist Platz für bis zu 32 x 32 = 1024 Objekte.  Wird ein weiteres
+   hinzugefügt, entsteht wieder eine neue Ebene, die dann Platz für
+   bis zu 32^3 = 32768 Objekte bietet.
+
+   Wird auf ein Objekt in dieser Datenstruktur mit Hilfe seines
+   Indexes zugegriffen, muss Clojure im Baum den korrekten Pfad zu dem
+   Objekt finden.  Dazu macht es sich die Eigenschaft von Java
+   zunutze, dass Integerwerte in 32 Bit gespeichert werden.  Diese 32
+   Bit werden in sechs Gruppen zu je fünf Bit zerlegt, und jede Gruppe
+   ist für den Index innerhalb einer Ebene des Baums zuständig.  Die
+   fünf Bits kodieren genau die benötigten 32 Werte für den Index in
+   einem Knoten.
+
+   Auf diese Art und Weise kann Clojure bis zu 32^6 = 2^{30} Werte in
+   einer Datenstruktur speichern und einen Zugriff auf persistente
+   Datenstrukturen innerhalb von O(log_{32} N) garantieren.
+
+   Die tatsächliche Implementation enthält kleinere Abweichungen von
+   diesem Prinzip, die der Verbesserung der Performance dienen.
+
+* Referenztypen
+
+  Clojure verwendet für die Modellierung der Zeit außerhalb des
+  eigenen Threads verschiedene Referenztypen.  Im Unterschied zu
+  Sprachen wie Java und C hält das Programm jedoch keine direkten
+  Referenzen auf Werte sondern indirekte.  Indirekte Referenzen
+  erlauben einen deutlich einfacheren Zugriff.  Hier hält das Programm
+  keine direkte Referenz auf den Datenblock mehr, sondern auf ein
+  Objekt, das davor sitzt.  Benötigt ein Programmteil den Wert, muss
+  es die gehaltene Referenz \index{Dereferenzieren}dereferenzieren.
+  Sollen aber die gespeicherten Daten verändert werden, kann im
+  Hintergrund und für andere Programmteile unsichtbar die neue
+  Datenstruktur aufgebaut werden bis schließlich die Referenz in einem
+  einzigen Schritt, atomar, umgehängt wird.  Die Manipulation etwa
+  eines Vektors ist ein aufwändigerer Prozess.  Das gilt nicht nur für
+  zusammengesetzte Datenstrukturen; schon das Verändern des primitiven
+  Datentyps long in Java ist nicht unbedingt ein atomarer Vorgang.
+
+  Clojure implementiert vier Referenztypen mit unterschiedlichen
+  Eigenschaften, die sich damit für verschiedene Anwendungsfälle
+  empfehlen: 
+  
+  - Var
+  - Atom
+  - Ref
+  - Agent
+
+  Vars finden Verwendung für Daten, deren Änderungen nur lokal in
+  einem Thread sichtbar sein sollen.  Ihre Manipulation verlangt somit
+  keinen Aufwand für eine Synchronisation zwischen Threads.  Im
+  Gegensatz zu den anderen Referenztypen erfolgt der Zugriff auf die
+  referenzierten Inhalten ohne ausdrückliches Dereferenzieren.
+
+  Atoms koordinieren Thread-übergreifend Lesen und Schreiben eines
+  einzelnen Werts. Änderungen sind in anderen Threads sichtbar. Zum
+  Zugriff auf den Wert wird das Atom dereferenziert.
+
+  Refs verhalten sich weitgehend so wie Atoms.  Allerdings erlaubt
+  Clojure durch Einsatz von Software Transactional Memory die
+  konsistente Manipulation mehrerer Refs.
+
+  Agents arbeiten asynchron und seriell.  Dadurch wird die
+  Fehlerbehandlung aufwendiger.  Auch bei ihnen erfolgt der Zugriff
+  durch Dereferenzieren.
+
+
+* Software Transactional Memory
+
+  Des wohl prominenteste Feature von Clojure hinsichtlich des
+  Concurrent Programming dürfte die Implementation von Software
+  Transactional Memory sein, eine Technologie deren Umsetzung selbst
+  Microsoft für .NET (zumindest vorläufig) eingestellt
+  hat. \cite{duffy10}
+
+  Datenbanken koordinieren seit langer Zeit konkurrierende Zugriffe
+  auf die in ihnen gespeicherten Daten.  Das Mittel der Wahl sind dort
+  Transaktionen, deren wichtigste Eigenschaft es ist, dass sie
+  entweder ganz oder gar nicht stattfinden.  Im Datenbankumfeld ist
+  dieses Verfahren erprobt, und der Gedanke liegt nahe, diese
+  Technologie auf Daten im Speicherbereich eines Programms anzuwenden.
+
+  Von den bekannten ACID-Eigenschaften solcher Transaktionen lassen
+  sich die ersten drei auch auf Manipulationen flüchtigen Speichers
+  übertragen, lediglich die Sicherung auf nichtflüchtige Medien
+  entfällt.  Ausgehend in den 1980er-Jahren von der (patentierten)
+  Idee, transaktionalen Speicher zu bauen, konzentrieren sich
+  Forschung und Entwicklung seitdem auf reine Softwarelösungen:
+  Software Transactional Memory oder kurz STM
+
+  Das Verfahren basiert auf einer Transaktionsmaschinerie, die
+  gleichzeitigen Transaktionen jeweils einen eigenen Zugriff auf die
+  zu manipulierenden Daten gewährt, alle agieren lässt und erst, wenn
+  eine Transaktion signalisiert, dass sie fertig ist, entscheidet, was
+  zu tun ist.  Den abschließenden Schritt, der die Manipulation der
+  Daten einer Transaktion auch für andere Programmteile manifestiert,
+  nennt man Commit.  Diesen Abschluss kann von gleichzeitigen
+  Transaktionen nur eine durchführen: diejenige, die zuerst ihren
+  Commit versucht.  Alle anderen müssen in der Regel ihre Arbeit
+  erneut beginnen.  Diese Wiederholungen stellen eine wichtige
+  Anforderung an die Funktionen, die in einer Transaktion durchgeführt
+  werden: Sie dürfen keine Effekte haben, die nicht zurücksetzbar
+  sind.  Meist bedeutet das, dass sie keine Nebeneffekte haben dürfen.
+  Reine Funktionen erfüllen diese Anforderung.
+
+  STM hat zwei wichtige Vorteile.  Erstens ist es, im Gegensatz zum
+  Locking, ein optimistischer Ansatz.  Lesende Zugriffe werden nicht
+  blockiert, auch alle schreibenden Zugriffe werden, wenn das
+  Transaktionssystem nicht vorher mögliche Konflikte erkennen kann,
+  bis zur Commit-Phase durchgeführt.  Das erlaubt einen höheren Grad
+  an Parallelisierung.  Der zweite Vorteil ist, dass dieses Modell
+  ebenso einfach zu verstehen wie einfach in der Handhabung ist.  Der
+  Programmierer muss eigentlich nur darauf achten, dass die in einer
+  Transaktion verwendeten Funktionen keine Nebeneffekte haben, und den
+  Rest erledigt das Transaktionssystem.  Die konkrete Implementation
+  des Transaktionssystems kann mit Hilfe von Locking erfolgen. In dem
+  Falle müssen aber nur die Entwickler dieses Systems das Locking in
+  den Griff bekommen, alle weiteren Anwender des Transaktionssystems
+  sind davon befreit.
+
+  Nachteilig an STM sind die höheren Anforderungen an Speicher und
+  CPU.  Jede Transaktion braucht genau genommen eine komplette Kopie
+  der zu verändernden Daten, und die möglichen Wiederholungen
+  verbrauchen mehr Rechenleistung.  Bei n gleichzeitigen Transaktionen
+  kann es im schlimmsten Falle zum n-fachen Bedarf an Speicher und
+  Rechenleistung kommen.  Zudem leidet die Vorhersagbarkeit, da der
+  Ablauf der Transaktionen vom Laufzeitverhalten abhängt.
+
+  An dieser Stelle kommt der Implementation der persistenten
+  Datenstrukturen bei Clojure eine tragende Rolle zu.  Durch sie ist
+  es möglich, jeder Transaktion effizient eine eigene Kopie der Daten
+  zur Verfügung zu stellen, sowie die Historie dieser Datenstruktur
+  bei zwischenzeitlich in anderen Threads erfolgten Änderungen
