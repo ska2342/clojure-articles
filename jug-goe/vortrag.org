@@ -1,0 +1,592 @@
+
+#+TITLE Clojure - Ein funktionales Lisp für die JVM
+#+AUTHOR Stefan Kamphausen <http://www.clojure-buch.de>
+#+DATE:      2010-11-03
+#+LANGUAGE:  de
+
+* (start)
+
+  Lisp's power is multiplied by the fact that your competitors don't
+  get it. 
+
+  
+                                Paul Graham
+                       Beating the Averages
+         http://www.paulgraham.com/avg.html
+
+
+
+
+* Einleitung
+
+  - SK und Java :-(
+  - Lisp :-)
+  - Abteilung: Java
+  - Überraschung: Clojure
+
+
+* Was ist Clojure?
+
+  - 2008, R. Hickey, CL-Java-Bridges
+  - Lisp
+  - Java
+  - Concurrency
+  - Funktional
+
+
+* Buch
+
+  - SourceTalk 2009
+  - Linux Magazin
+  - dpunkt
+
+
+* Installation
+
+** An der Shell
+
+   - JAR-Files herunterladen clojure & contrib
+
+#+begin_src sh
+java -cp clojure.jar:clojure-contrib.jar:$OTHER clojure.main
+#+end_src
+
+  - Clojure Contrib wird derzeit zerteilt.
+  - REPL ...
+
+** Diverse IDEs
+
+*** Emacs
+
+    Der entsprechende Emacs-Mode heißt SLIME, die Kommunikation
+    erledingt das Backend Swank.
+
+*** Vim
+
+    Vimclojure mit dem Nailgun-Server als Backend.
+
+*** NetBeans
+
+    Mit einem aktuellen Netbeans die auf http://www.enclojure.org/
+    beschrieben Schritte durchführen.
+
+*** Eclipse
+
+    Das Plugin heißt Counterclockwise:
+    http://code.google.com/p/counterclockwise/
+
+*** Leiningen
+
+**** Installation
+      - Runterladen, in $PATH, chmod+x
+      - lein self-install
+
+**** Projekt anlegen
+
+      - lein new de.java.workshop.clojure
+      - lein deps
+
+**** Arbeiten
+
+      - lein repl
+      - lein swank und im Emacs M-x slime-connect.  Braucht die
+       	entsprechenden dev-dependencies in project.clj:
+
+       	: :dev-dependencies [[swank-clojure "1.2.1"]]
+
+       	
+* Die ersten Schritte
+
+** Hello World
+
+*** Aufruf einer Funktion
+
+   : user=> (println "hello world")
+   : hello world
+   : nil
+
+    Am REPL-Prompt wird ein Ausdruck eingegeben.  Erstes Symbol
+    benennt eine Funktion, Rest Argumente.  Simpel.
+
+    Die Evaluation liefert nil, was ausgegeben wird.
+
+*** Zu kompliziert! Literal
+
+   : user=> "hello world"
+   : "hello world"
+
+    Evaluation von Literalen.
+
+*** Noch komplizierter: Java-Interop
+
+   : user=> (.println System/out "hello world")
+   : hello world
+   : nil
+
+    Überraschung mit leiningen und SLIME: Ausgabe des Java-Aufrufs in
+    der Shell.
+
+
+* Java Integration
+
+  Integration mit Java bereits an dieser Stelle.  Wer weiß, ob wir
+  nicht schon Java-Klassen in Beispielen brauchen.
+
+  Wenn eine probate Lösung in Java vorhanden ist, ist das auch eine
+  probate Lösung in Clojure und gilt nicht als Lösung zweiter Klasse.
+
+** Konstruktor
+
+   : (new java.util.Random)
+   : ; oder
+   : (java.util.Random.)
+   : ; oder
+   : (import java.util.Random)
+   : (Random.)
+
+
+** Instanz-Methoden
+   
+   : user=> (def rng (Random.))
+   : #'user/rng
+   : user=> (.nextInt rng)
+   : 1402602399
+   : user=> (. rng nextInt)
+   : 1830901681
+
+
+** Statische Member
+
+   : user=> (System/currentTimeMillis)
+   : 1288731217149
+
+
+* Weiter mit Clojure
+
+** Variablen & Funktionen
+
+   Funktionen werden mit /defn/ erzeugt:
+
+   : user=> (defn say-hello-world []
+   :              (println "hello world"))
+   : #'user/say-hello-world
+   : user=> (say-hello-world)
+   : hello-world
+   : nil
+
+   Eingabe, Compiler, zur Laufzeit
+
+   In Clojure gibt es einige Namenskonventionen:
+   - Minus als Worttrenner, kein CamelCase oder Unterstrich
+   - Globale Variablen bekommen je ein Sternchen vorne und hinten.
+
+   Der Rückgabewert der Funktion ist der Wert des letzten Ausdrucks.
+   Oben war das einmal die "Var" und einmal nil.
+
+   Anlegen von Vars mit /def/:
+
+   : user=> (def *hello-string* "hello world")
+   : #'user/*hello-string*
+   : user=> *hello-string*
+   : "hello world"
+   : user=> (type *hello-string*)
+   : java.lang.String
+   : user=> (meta #'*hello-string*)
+   : {:ns #<Namespace user>, :name *hello-string*, :file "NO_SOURCE_PATH", :line 41} 
+
+   Metadaten sind Daten, die zu einem Objekt gehören, aber nicht zum
+   Wert beitragen.  Wichtiges Beispiel sind auch die Docstrings.
+   Var-Quote "#'" wird hier gebraucht, um an die Var zu kommen, bei
+   der die Metadaten gespeichert sind und nicht das Symbol.
+
+
+** Eingebaute Dokumentation
+
+*** Dokumentation finden
+
+   : user=> (doc println)
+   : -------------------------
+   : clojure.core/println
+   : ([& more])
+   :   Same as print followed by (newline)
+   : nil
+   :
+   : user=> (find-doc "println")
+   : -------------------------
+   : clojure.core/print
+   : ([& more])
+   :   Prints the object(s) to the output stream that is the current value
+   :   of *out*.  print and println produce output for human consumption.
+   : -------------------------
+   : clojure.core/println
+   : ([& more])
+   :   Same as print followed by (newline)
+   : -------------------------
+   : clojure.core/println-str
+   : ([& xs])
+   :   println to a string, returning it
+   : nil
+
+   Dokumentation ist direkt einsehbar; nicht (nur) als externe Dateien
+   verfügbar.
+
+*** Dokumentation erstellen
+
+    Eigentlich Metadaten, aber /defn/ hilft.
+
+    : (defn hello-you
+    :   "Prints hello followed by YOU."
+    :   [you] (println "Hello," you))
+    : user=> (hello-you "Netbeans")
+    : Hello, Netbeans
+    : user=> (doc hello-you)
+    : -------------------------
+    : user/hello-you
+    : ([you])
+    :   Prints hello followed by YOU.
+
+
+** Control-Flow
+ 
+*** if/else
+
+    : (defn teste-string [s]
+    :   (if (= s "hello")
+    :     (println "= hello")
+    :     (println "!= hello")))
+    :
+    : (defn teste-string-2 [s]
+    :   (if (= s "hello")
+    :     (println "= hello")
+    :     (if (= s "world")
+    :       (println "= world")
+    :       (println "weder 'hello' noch 'world'"))))
+
+*** cond
+
+    - C hat switch
+    - Clojure hat cond!
+
+    : (import java.util.Random)
+    : (defn zahl-rate-generator []
+    :   (let [z (.. (Random.) (nextInt 20))]
+    :     (fn [k] (cond
+    :               (< k z) (println "Zahl ist groesser")
+    :               (> k z) (println "Zahl ist kleiner")
+    :               :else (println "Zahl geraten!")))))
+
+    Langsam, langsam!  Was haben wir hier?
+    - ..
+    - Instanz von Random
+    - Methodenaufruf
+    - Anonyme Funktion, Closure
+    - und cond
+    - :else oder irgendetwas anderes "wahres".. Was ist wahr?  Nur nil
+      und false sind logisch falsch.
+
+    : user> (def spiel (zahl-raten/zahl-rate-generator))
+    : #'user/spiel
+    : user> (spiel 18)
+    : Zahl ist kleiner
+    : nil
+    : user> (spiel 10)
+    : Zahl ist groesser
+    : nil
+    : user> (spiel 15)
+    : Zahl ist groesser
+    : nil
+    : user> (spiel 17)
+    : Zahl geraten!
+    : nil
+
+*** loop
+    
+    JVM kann keine Tail Recursion, aber loop und recur
+    
+   : (defn quersumme [zahl]
+   :   (loop [x zahl
+   :            summe 0]
+   :     (if (< x 9)
+   :       (+ summe x)
+   :       (recur (int (/ x 10))
+   :                 (+ summe (mod x 10))))))
+
+    Schleifen sind selten.
+
+** Umgang mit Resourcen
+
+   : (use '[clojure.java.io :only (reader)]))
+   : 
+   : (defn split-passwd-line [l]
+   :   (let [data (. l split ":")
+   : 	     keys [:user :password :uid :gid :name :home :shell]]
+   :     (apply hash-map (interleave keys data))))
+   
+   - split auf String
+   - interleave
+   - apply
+
+   : (defn passwd-seq []
+   :   (with-open [rdr (reader "/etc/passwd")]
+   :     (doall (map split-passwd-line (line-seq rdr)))))
+   
+   - Lesen aus BufferedReader
+   - /doall/ um das Evaluieren der lazy-seq zu erzwingen (sonst stream zu!)
+   - /with-open/ erledigt das Schliessen
+   - Verwendung eines Macros
+
+     : (macroexpand '(with-open [rdr nil] (println)))
+     : (let* [rdr nil]
+     :       (try (clojure.core/with-open []
+     : 	     (println))
+     : 	   (finally (. rdr clojure.core/close))))
+
+
+** Makros
+
+   - (= 'Code 'Daten)
+     t
+   - Listen klassische Datenstruktur von Lisp, in Clojure eigentlich
+     nur für Quellcode.
+   - Kann Quellcode verarbeiten!
+   - Vor dem Kompilieren.
+
+*** Typische Makros
+
+    - Kontrolle der Evaluation der Argumente
+      - z.B. AND.
+    - with-artige
+      - Keine Wiederholungen
+      - Kompakter
+    - define-artige
+      - DSLs
+
+
+* Datenstrukturen
+
+** Elementare
+
+   1) /nil/ ist /null/
+   2) Zahlen & Strings (aus Java)
+   3) /keyword/ & /Symbol/
+
+** Unveraenderbar (immutable)
+
+   Modifikation einer Instanz erzeugt eine neue Instanz (die aus
+   Performancegruenden Teile der urspruenglichen Instanz enthaelt):
+
+   : user> (vector 1 2 3)
+   : [1 2 3]
+   : user> (try (. (vector 1 2 3) add 4) (catch Exception e e))
+   : #<UnsupportedOperationException java.lang.UnsupportedOperationException>
+   : user> (conj (vector 1 2 3) 4)
+   : [1 2 3 4]
+
+** Implementation
+
+   Bei Interesse an dieser Stelle Implementation der persistenten
+   Datenstrukturen erklären und auf die grundlegende Bedeutung der
+   unveränderlichen Daten hinweisen.
+
+** List, Vector, Map, Set
+
+   http://clojure.org/data_structures
+
+   Erzeugen jeweils mit Read-Syntax und Funktionsaufruf:
+
+   : user> (list :a :b :c)
+   : (:a :b :c)
+   : user> '(:a :b :c)
+   : (:a :b :c)
+   : user> (vector :a :b :c)
+   : [:a :b :c]
+   : user> [:a :b :c]
+   : [:a :b :c]
+   : user> (hash-map :a "a" :b "b" :c "c")
+   : {:a "a", :c "c", :b "b"}
+   : user> {:a "a", :b "b" :c "c"}
+   : {:a "a", :b "b", :c "c"}
+   : user> (hash-set :a :b :c)
+   : #{:a :c :b}
+   : user> #{:a :b :c}
+   : #{:a :c :b}
+
+   Read-Syntax erlaubt keine Duplikate.
+
+   Zugriff auf die Elemente: get, aber Vektoren sind Funktionen ihrer
+   Indizes, Maps sind Funktionen ihrer Keys, Keywords sind Funktionen
+   der Maps.
+
+   Jeweils spezifische API-Funktionen, aber...
+
+** Collections implementieren Sequenz-Interface
+
+   Generische Funktionen aufs Sequenzen:
+
+   /first/, /rest/, /cons/, /filter/, /map/, /take/, ...
+
+   http://clojure.org/sequences
+
+   Abstraktion: first und rest und das passt auf vieles.  Collection,
+   Vector, List, Array, String, etc.
+
+
+* Threads, Threads, Threads
+
+  Eine Motivation für die Entwicklung von Clojure war, das Verhalten
+  von Multithreaded-Programmen besser in den Griff zu bekommen.  Dazu
+  müssen wir aber zunächst Threads erzeugen können.
+
+** Java-Threads
+
+   : (defn print-thread-info []
+   :   (println
+   :     (let [t (Thread/currentThread)]
+   :       [(.getName t) (.getId t)])))
+   : user=> (print-thread-info)
+   : [Thread-2 12]
+   : user=> (.start (Thread. print-thread-info))
+
+   Der Output anderer Threads landet in Netbeans in *out*, im Emacs in
+   Inferior-Lisp-Buffer.
+
+** Clojure: Future
+
+   : (def ff (future (print-thread-info)))
+
+   Wird irgendwann in einem anderen Thread evaluiert.  Output in
+   *out*.  Und ws steckt in ff?
+
+   : user=> ff
+   : #<Object$IDeref$Future$2b9be1f9@1a4036f: nil>
+  
+   äääh?  Dereferenzieren.  Das führt direkt die indirekten
+   Referenztypen ein.  
+
+   : user=> @ff
+   : nil
+
+   Aha.  nil kommt vom println.  
+
+
+
+
+** Agents
+
+   Was kann man denn noch so dereferenzieren?
+
+   : (def agt (agent 1))
+   : (defn erhoehen [current]
+   :   (inc current))
+   : user=> (send agt erhoehen)
+   : #<Agent 2>
+   : user=> (deref agt)
+   : 2
+   : sample.core=> (send agt inc)
+   : #<Agent 3>
+   : user=> @agt
+   : 3
+
+   Und wo wird das berechnet?  In einem anderen Thread.
+
+   : (defn erhoehen-mit-print [cur]
+   :   (print-thread-info)
+   :   (inc cur))
+   : user=> (send agt erhoehen-mit-print)
+   : user=> @agt
+   : 4
+
+*** Aufgabe
+
+    10 Threads starten, die alle den Wert eines Agents erhöhen.
+
+*** Lösung
+
+   : (defn new-thr-send-inc-to-agent [agt]
+   :   (.start
+   :     (Thread.
+   :       (fn []
+   :         (send agt inc)))))
+   : user=> (def agt (agent 0))
+   : #'user/agt
+   : user=> (dotimes [i 10]
+   :                 (new-thr-send-inc-to-agent agt))
+   : nil
+   : sample.core=> @agt
+   : 10
+
+
+* Referenztypen
+
+  Aus dem letzten Beispiel mit den 10 Threads, die auf einem Agent
+  arbeiten, lässt sich ableiten, dass Clojure hier wichtige Arbeit im
+  Hintergrund erledigt: die gesamte Synchronisation der Zugriffe!
+  Kein Locking notwendig.  
+
+  Agents sind eine Queue und verwenden bereits einen Thread-Pool.
+  Andere Typen sind Vars, Atoms und Refs.
+
+  - Vars: thread-local
+  - Atoms: ein Wert, thread-übergreifend
+  - Refs: viele Werte, thread-übergreifend, STM!
+
+** Aufgabe
+
+   10 Agenten starten Transaktionen, die in zwei Refs je einen Zähler
+   erhöhen und einen verkleinern.  Dabei zählen sie in Atoms die
+   Fehlversuche. 
+
+** Lösung
+
+   : (def agts (map agent (take 10 (iterate inc 0))))
+   : (def all-collision (atom 0))
+   : (def up (ref 0))
+   : (def down (ref 200))
+   : (defn counted-inc [state]
+   :   (swap! all-collision inc)
+   :   (inc state))
+   : (defn counted-dec [state]
+   :   (swap! all-collision inc)
+   :   (dec state))
+   : (defn agent-fn [_]
+   :  (dosync
+   :  (alter up counted-inc)
+   :  (alter down counted-dec)))
+   : 
+   : user> (doseq [a (take 100 (cycle agts))]
+   :         (send a agent-fn))
+   : nil
+   : user> @all-collision
+   : 208
+   : user> @up
+   : 100
+   : user> @down
+   : 100
+
+
+* Exceptions
+
+  Exceptions sind Java-Exceptions: 
+
+  : (defn parse-int-or-nil [s]
+  :   (try (Integer/parseInt s)
+  :        (catch NumberFormatException nfe (prn nfe) nil)))
+  : 
+  : user> (parse-int-or-die "42")
+  : 42
+  : user> (parse-int-or-die "foo")
+  : #<NumberFormatException java.lang.NumberFormatException: For input string: "foo">
+  : nil
+
+  try, catch, finally, throw.  Makros können Arbeit abnehmen!
+  Ggf. nochmal das obige with-open zeigen.  Wird evtl. jetzt klarer.
+
+
+
+* Ausführliches Beispiel: Bifurkation
+
+  Siehe: plot.clj im Buch.
+  - Systemüberwachung starten
+  - map: single threaded 
+  - pmap: parallel
+  - Einschwingen von 5000 auf 15000
