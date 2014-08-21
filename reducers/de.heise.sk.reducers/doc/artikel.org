@@ -1,0 +1,620 @@
+#+TITLE: Reducers in Clojure - auf das Wesentliche reduziert
+#+AUTHOR: Stefan Kamphausen
+#+DESCRIPTION: Die neuen Reducers in Clojure - Anwendung und Implementation
+#+KEYWORDS:  Clojure, Reducers, reduce, Lazy Sequences
+
+* Reducers in Clojure 1.5
+
+Bedarfsauswertung (Lazy Evaluation)
+spielt in Clojure eine zentrale Rolle.
+Viele häufig verwendete Funktionen wie
+=map=, =filter= und =reduce= erzeugen
+/Lazy Sequences/. Diesen sequentiellen
+Datenstrukturen zeichnet aus, dass
+Clojure ihre Elemente erst berechnet,
+wenn eine Funktion auf die Elemente
+zugreift.  Neben der somit möglichen
+Verarbeitung unendlich langer Lazy
+Sequences, sofern der Aufrufer nicht
+alle Elemente konsumiert, lassen sich
+Lazy Sequences auch sehr gut zu neuen
+Funktionen zusammenstellen.  Dennoch
+haben sie auch ihre Kosten, sodass die
+Anwender sich in einigen Abschnitten
+ihres Programms eine Alternative
+wünschen.  Die neuen /Reducers/, die
+seit Clojure 1.5 verfügbar sind, stellen
+eine solche Alternative dar.  Durch die
+Fokussierung auf das Schweizer
+Taschenmesser der funktionalen
+Programmierung-- =reduce=-- sowie eine
+geschickte Mischung aus Clojures
+Metaprogrammierung mit Makros, Javas
+Interfaces und eine Rückbesinnung auf
+die wesentliche Abstraktion erlauben die
+Reducers Performancegewinne durch
+strikte Evaluation sowie
+Parallelisierung.
+
+** Code Beispiele
+
+Alle Beispiele in diesem Artikel können
+direkt in einer REPL-Sitzung
+nachvollzogen werden.  Dazu ist eine
+Entwicklungsumgebung, etwa mit Emacs und
+nrepl.el [fn:1] oder dem
+Counterclockwise-Plugin [fn:2] in
+Eclipse notwendig.
+
+Die Formatierung der REPL-Beispiele
+orientiert sich an der mittlerweile
+gängigen Form, den Prompt für die
+Eingaben (etwa "user>") nicht
+anzuzeigen, Ausgaben während der
+Ausführung als Kommentare (erkennbar am
+Semikolon) und den Rückgabewert einem
+";=> " folgend darzustellen.  Diese Form
+wurde zuerst in [fn:3] etabliert.
+
+
+** Lazy Sequences
+
+Das harmlose Konstrukt 
+
+#+BEGIN_SRC clojure
+  ;; nicht an der REPL eingeben
+  (iterate inc 1)
+#+END_SRC
+
+berechnet durch wiederholte Anwendung
+der Inkrement-Funktion =inc= mit einem
+Startwert von 1 theoretisch alle
+natürlichen Zahlen.  Offensichtlich ist
+diese Sequenz unendlich lang und
+bereitet dem Computer damit nicht
+lösbare Probleme.  Da die Funktion
+=iterate= eine Lazy Sequence erzeugt,
+lässt sich diese Sequenz einerseits
+speichern und andererseits auch
+abfragen:
+
+#+BEGIN_SRC clojure
+  (def natuerliche (iterate inc 1))
+  (type natuerliche)
+  ;=> clojure.lang.Cons
+  (type (rest natuerliche))
+  ;=> clojure.lang.LazySeq
+  (take 10 natuerliche)
+  ;=> (1 2 3 4 5 6 7 8 9 10)
+#+END_SRC
+
+Für den Anwender weitgehend unsichtbar
+erzeugt Clojure Objekte ("Cons",
+"LazySeq"), die immer das Rezept für die
+Berechnung des nächsten Werts enthalten.
+Zusätzlich speichert die Lazy Sequence
+alle berechneten Werte und erhöht somit
+den Speicherbedarf.
+
+Das Cachen der Werte benötigt sowohl
+Speicher als auch CPU-Zeit, die
+notwendige Komplexität für die Laziness
+erfordert weitere CPU-Zeit.  Wenn die
+Daten ohnehin im Speicher vorliegen, ist
+dieser Overhead nicht immer notwendig.
+
+** Das kanonische Beispiel
+
+Als einfaches Beispiel, wie die Reducer
+eingesetzt werden und welche Wirkung sie
+haben, dient folgende Aufgabe: Von allen
+ungeraden Zahlen von eins bis einer
+Million addiere jeweils die nächsthöhere
+natürliche Zahl.
+
+Der folgende Code erzeugt zunächst die
+benötigten Zahlen und sorgt durch
+Verwenden von =doall= dafür, dass im
+weiteren Verlauf keine Laziness-Effekte
+das Ergebnis verfälschen.  
+
+#+BEGIN_SRC clojure
+  (def zahlen (doall (range 1e6)))
+#+END_SRC
+
+Die funktionalen Klassiker =filter=,
+=map= und =reduce= berechnen das
+geforderte Ergebnis:
+
+#+BEGIN_SRC clojure
+  (defn standard [daten]
+    (reduce + 
+            (map inc 
+                 (filter odd? daten))))
+#+END_SRC
+
+An der REPL kann das Makro =time= die
+Berechnung durchführen und die dafür
+notwendige Zeit messen:
+
+#+BEGIN_SRC clojure
+  (time (standard zahlen))
+  ; "Elapsed time: 168.195122 msecs"
+  ;=> 250000500000
+#+END_SRC
+
+Um im weiteren Verlauf die Funktionen
+aus der Reducers-Bibliothek verwenden zu
+können, lädt =require= die Bibliothek
+mit dem Kürzel "r" in den aktuellen
+Namespace:
+
+#+BEGIN_SRC clojure
+  (require '[clojure.core.reducers :as r])
+#+END_SRC
+
+Ein erster Performancegewinn lässt sich
+mit geringen Änderungen am Code dadurch
+erreichen, dass bei der Berechnung die
+äquivalenten Funktionen aus der
+Bibliothek eingesetzt werden:
+
+#+BEGIN_SRC clojure
+  (defn not-lazy [data]
+    (reduce +
+            (r/map inc 
+                   (r/filter odd? data))))
+  (time (not-lazy zahlen))
+  ; "Elapsed time: 121.721544 msecs"
+  ;=> 250000500000
+#+END_SRC
+
+Somit bewirkt alleine das Vermeiden der
+Laziness eine Steigerung der
+Geschwindigkeit um etwa 30%.
+
+Der eigentliche Clou der
+Reducers-Bibliothek ist die Möglichkeit
+der automatischen Parallelisierung.
+Dazu existiert eine dedizierte Funktion,
+=fold=.
+
+Ein naiver Austausch von =reduce= durch
+=fold= zeigt, dass es keinen
+nennenswerten Unterschied gibt:
+
+#+BEGIN_SRC clojure
+  (defn parallel [data]
+    (r/fold + 
+            (r/map inc 
+                   (r/filter odd? data))))
+  (time (parallel zahlen))
+  ; "Elapsed time: 128.426658 msecs"
+  ;=> 250000500000
+#+END_SRC
+
+Das ist zunächst etwas enttäuschend,
+aber verständlich, wie die folgende
+Betrachtung der Hintergründe der
+Reducers zeigt.
+
+** Hintergründe
+
+Wie so oft steht vor einer Verbesserung
+ein Schritt zurück und die Überlegung,
+was an einer Operation das Wesentliche
+ist.  So zeigt die Betrachtung der
+klassischen =map=-Implementation eine
+Vermischung verschiedener Aspekte:
+
+- Rekursion ist in der Regel das Mittel
+  der Wahl für die Implementation von
+  =map=. 
+- Die Bearbeitung einer Liste von Werten
+  erfolgt sequenziell.
+- Das Ergebnis ist lazy.
+
+Die zentrale Aufgabe von =map= ist
+jedoch, eine Funktion auf jedes einzelne
+Element anzuwenden.  Ähnliche
+Betrachtungen lassen sich für andere
+Funktionen wie =filter= oder =mapcat=
+anstellen.
+
+Mit der Funktion =reduce= existiert ein
+Mechanismus, der für die Anwender
+unbemerkt seit Clojure 1.3 durch ein
+/Protocol/, einem Mechanismus basierend
+auf Java Interfaces, implementiert ist.
+Das erlaubt den Datenstrukturen eigene,
+performante Implementationen für
+=reduce= anzubieten.  Clojure
+persistente Vektoren besitzen eine
+solche Implementation.
+
+Wenn nun in einem Programm eine
+Kombination von =map= und =filter= mit
+abschließendem =reduce= existiert, kann
+=map= die Details seiner Implementation
+auf den Reduce-Schritt abwälzen.  Somit
+kann sich =map= im Zusammenspiel mit
+=reduce= wieder auf die eigentliche
+Aufgabe, das Anwenden einer Funktion auf
+ein Element, konzentrieren.
+
+In einem Konstrukt wie 
+
+#+BEGIN_SRC clojure
+  (reduce + 0 (map inc [1 2 3]))
+  ;=> 9
+#+END_SRC
+
+lässt sich das gleiche Ergebnis
+erzielen, wenn der Inkrement-Schritt in
+die Reducing-Funktion verlagert wird.
+Eine neue Funktion =mapping= ermöglicht
+dies:
+
+#+BEGIN_SRC clojure
+  (defn mapping [map-fn]
+    (fn [red-fn]
+      (fn [acc element]
+        (red-fn acc (map-fn element)))))
+#+END_SRC
+
+Die neue Funktion =mapping= nimmt die
+anzuwendende Funktion (=map-fn=) als
+Argument und liefert eine Funktion, die
+ihrerseits die ursprüngliche
+Reducing-Funktion (=red-fn=) entgegen
+nimmt und eine Funktion liefert, die
+eine Kombination der beiden bewirkt.
+Diese letzte Funktion verwendet =reduce=
+als Reducing-Funktion.
+
+#+BEGIN_SRC clojure
+  (reduce ((mapping inc) +) 0 [1 2 3])
+  ;=> 9
+#+END_SRC
+
+In diesem Beispiel erhält =mapping= die
+Funktion =inc= als =map-fn= und im
+inneren Teil ist =red-fn= die Funktion
+=+=.  Es handelt sich hier um eine
+prinzipielle aber im Vergleich zur
+tatsächlichen Implementation leicht
+vereinfachte Darstellung der
+Arbeitsweise von =mapping=.  Diese
+Vereinfachung verlangt den Aufruf von
+=reduce= in der Form mit einem initialen
+Wert, 0.
+
+Die Reducers-Bibliothek hat jedoch das
+Ziel, dass der Anwender seinen Code
+nicht umstrukturieren muss, was in
+obigem Beispiel der Fall war.  Eine
+solche Anpassung können selbst die sonst
+so wirksamen Lisp-Makros nicht alleine
+auf Code-Ebene realisieren.  Zur
+Laufzeit liefert =r/map= daher ein
+spezielles Objekt, das das passende
+Protocol implementiert.  Das verlagert
+die Auswertung in die Reducing-Funktion.
+
+Der folgende Aufruf zeigt, welche
+Interfaces das von =r/map= erzeugte
+Objekt implementiert.
+
+#+BEGIN_SRC clojure
+  (seq (.getInterfaces 
+        (class (r/map inc [1 2]))))
+  ;=> (clojure.core.reducers.CollFold
+  ;=>  clojure.core.protocols.CollReduce
+  ;=>  clojure.lang.IObj)
+#+END_SRC
+
+** Fold, zweiter Teil
+
+Diese Liste suggieriert, dass es nicht
+nur ein Protocol für =reduce= gibt,
+sondern auch eines für =fold=
+("CollFold").  Nachdem der erste Einsatz
+des potentiell parallelen =fold= so
+enttäuschend verlief, wird durch die
+bisherige Betrachtung deutlich, dass die
+Parallelisierung nur für passende
+Datenstrukturen erfolgt.  In Clojure 1.5
+implementieren die persistenten
+Vektoren das Protocol mit
+Parallelisierung.
+
+#+BEGIN_SRC clojure
+  (def zahlen-v (vec (range 1e6)))
+  (time (standard zahlen-v))
+  ; "Elapsed time: 154.737774 msecs"
+  ;=> 250000500000
+  (time (not-lazy zahlen-v))
+  ; "Elapsed time: 135.502804 msecs"
+  ;=> 250000500000
+  (time (parallel zahlen-v))
+  ; "Elapsed time: 68.257371 msecs"
+  ;=> 250000500000
+#+END_SRC
+
+Wie erwartet bewirkt =fold= bei einem
+Vektor aus Zahlen eine signifikante
+Beschleunigung.
+
+Hinter den Kulissen bewirkt das
+Fork-Join-Framework [fn:4] diese
+Beschleunigung, dessen Beschreibung und
+Wirkungsweise im Zusammenhang mit den
+Reducers Leonardo Borges auf [fn:5]
+anschaulich beschreibt.  Fork-Join kann
+jedoch nur funktionieren, wenn die Menge
+der Elemente teilbar ist und die
+Bearbeitung in beliebiger Reihenfolge
+mit definiertem Zusammenführen der
+Zwischenergebnisse erfolgt.  Daher
+muss =fold= einige Anforderungen an die
+Reducing-Funktion stellen.  Die bislang
+verwendete Addition erfüllt diese
+Anforderungen:
+
+- Ein Aufruf der Funktion ohne Argumente
+  liefert ein /neutrales Element/.
+- Die Funktion ist assoziativ, die
+  Reihenfolge der Anwendung spielt keine
+  Rolle.
+- Die Funktion muss auch zwei Argumente
+  akzeptieren.
+
+Häufig wird die Reducing-Funktion mit
+einer Combine-Funktion ergänzt werden
+müssen.  In dem Falle gelten die
+Anforderungen für die Combine-Funktion.
+Die Aufgabe der Combine-Funktion ist
+einerseits die Initialisierung der
+einzelnen Teilschritte, andererseits die
+Zusammenführung der Teilergebnisse.
+
+** Wie viele Klammern hat Clojure?
+
+Die Frage, wie viele Klammern in
+Clojures Implementation enthalten sind,
+veranschaulicht die Anwendung der
+Combine-Funktion.
+
+Zunächst lädt der folgende Code den
+Inhalt von =core.clj= zeichenweise in
+einen Vektor:
+
+#+BEGIN_SRC clojure
+  (def core (-> "clojure/core.clj"
+                clojure.java.io/resource
+                slurp
+                vec))
+#+END_SRC
+
+Im zweiten Schritt zählt =reduce= in
+einer Hash-Map die Vorkommen einzelner
+Zeichen.  Zusätzlich bekommt die
+Hash-Map mit dem Keyword =:all= einen
+Zähler für die gesamte Anzahl von
+Zeichen. 
+
+#+BEGIN_SRC clojure
+  (defn zaehl [string]
+    (reduce
+     (fn [acc zeichen]
+       (update-in
+        (assoc acc zeichen
+               (inc (get acc zeichen 0)))
+        [:all] inc))
+     {:all 0}
+     string))
+#+END_SRC
+
+Diese Reducing-Funktion erfüllt nun
+nicht mehr die Anforderungen, die =fold=
+verlangt.  Daher ist es notwendig, eine
+Combine-Funktion zu definieren.  Die
+Definition erfolgt mit der Hilfsfunktion
+=monoid= aus der Reducers-Bibliothek.
+Diese Funktion nimmt zwei Funktionen
+entgegen, eine für den
+Kombinationsschritt und eine für die
+Initialisierung.  Der Rückgabewert ist
+eine neue Funktion, die entweder kein
+Argument oder zwei Argumente entgegen
+nimmt.  Die Initialisierung ohne
+Argumente liefert eine Hash-Map, in der
+=:all= mit 0 vorbelegt wird.  Die
+Kombination zweier Unterergebnisse
+verwendet =merge-with= in Kombination
+mit =+=.
+
+#+BEGIN_SRC clojure
+  (merge-with + {:a 2} {:a 4})
+  ;=> {:a 6}
+#+END_SRC
+
+Der Einsatz von =partial= liefert eine
+neue Funktion auf Basis von
+=merge-with=, bei der das erste Argument
+mit =+= vorbelegt ist.
+
+#+BEGIN_SRC clojure
+  ((partial merge-with +) {:a 2} {:a 4})
+  ;=> {:a 6}
+#+END_SRC
+
+Die Reducing-Funktion kommt unverändert
+zum Einsatz.
+
+#+BEGIN_SRC clojure
+  (defn zaehl-fold [string]
+    (r/fold
+     (r/monoid (partial merge-with +) 
+               (constantly {:all 0}))
+     (fn [acc el]
+       (update-in
+        (assoc acc el (inc (get acc el 0)))
+        [:all] inc))
+     string))
+#+END_SRC
+
+Eine kleine Auswertungsfunktion fasst
+die Daten schließlich zusammen und
+stellt dabei sicher, dass sich die
+beiden Ergebnisse nicht unterscheiden.
+
+#+BEGIN_SRC clojure
+  (defn zeichen-zaehlen [string]
+    (let [auswert   (time (zaehl string)) 
+          auswert-f (time (zaehl-fold string))
+          nur-chars (dissoc auswert :all)]
+      (println "Gleich:" 
+               (= auswert auswert-f))
+      (println "Zeichen gesamt:" 
+               (:all auswert))
+      (print "Top: ")
+      (prn (last (sort-by val nur-chars)))
+      (print "Klammern: ")
+      (prn (select-keys nur-chars [\( \)]))
+      (println "Verschiedene:" 
+               (count auswert))))
+#+END_SRC
+
+#+BEGIN_SRC clojure
+  (zeichen-zaehlen core)
+  ; "Elapsed time: 278.217432 msecs"
+  ; "Elapsed time: 108.543598 msecs"
+  ; Gleich: true
+  ; Zeichen gesamt: 231405
+  ; Top: [\space 57224]
+  ; Klammern: {\) 5991, \( 5991}
+  ; Verschiedene: 95
+  ;=> nil
+#+END_SRC
+
+Auch bei dieser schon sehr schnellen
+Operation ist durch die Parallelisierung
+mit =fold= ein erheblicher
+Geschwindigkeitsvorteil erkennbar.
+
+** Fehlerquellen und Kritik
+
+Wenn sich beim Entwickeln Verwunderung
+einstellt, dass der Einsatz von =fold=
+keinen Geschwindigkeitszuwachs zur Folge
+hat, liegen die Daten oft nicht in
+Vektoren vor.  Bislang existieren
+Reducers-Varianten von =map=, =mapcat=,
+=filter=, =remove=, =flatten=,
+=take-while=, =take= und =drop=.  All
+diese Funktionen lassen alle miteinander
+kombinieren, arbeiten aber nicht mit den
+Core-Funktionen zusammen, die lazy
+vorgehen, wie etwa =partition=.  Zum
+Versuch solcher Kombinationen kommt es
+gelegentlich, wenn bereits bestehender
+Code auf die Reducers-Varianten portiert
+werden soll, um den Prozess zu
+beschleunigen.  Die fehlende
+Kombinierbarkeit mit den lazy
+Core-Funktionen könnte sich als eine
+Hürde erweisen.
+
+Im Rahmen seiner Vorträge zum Thema
+Reducers [fn:6] hat Rich Hickey als eine
+Motivation angeführt, dass einmal
+geschriebene Programme bei neuen
+Rechnergenerationen wieder schneller
+werden, wie aus der Zeit der immer
+schnelleren Takte bekannt.  Der Einsatz
+von =fold= erfolgt allerdings eher
+punktuell und inwieweit dieser Einsatz
+eine generelle Beschleunigung durch mehr
+Kerne erlaubt, ist fraglich.  Zudem
+zerlegt die aktuelle Implementation das
+Problem unabhängig von der Anzahl der
+verfügbaren Kerne.
+
+Ein weiterer Kritikpunkt ist, dass
+Anwender der Reducers-Bibliothek
+teilweise Implementationsdetails anderer
+Funktionen kennen müssen.
+Beispielsweise lassen sich etwa die
+neuen Funktionen mit =into= verwenden,
+da =into= mit =reduce= implementiert
+ist, was Anwendern nicht unbedingt
+bewusst ist.
+
+** Weiteres Material
+
+In [fn:7] beschreibt Rich Hickey die
+Hintergründe und das prinzipielle
+Vorgehen der Reducers-Bibliothek.  Die
+tatsächliche Implementation weicht davon
+ein wenig ab.  Funktionen, die
+Funktionen liefern, die Funktionen
+liefern, sowie das Zusammenspiel von
+Implementationen von Protocols und
+Makros bieten zahlreiche Möglichkeiten,
+sein Gehirn zu verknoten.
+
+Auf [fn:8] beschreibt Carin Meier auf
+amüsante Weise, wie der Einsatz von
+=fold= Leben retten kann.  David Liebke
+hat in seinem Vortrag auf [fn:9] eine
+weitere Beschreibung des
+Fork-Join-Framework, wenngleich ohne
+direkten Bezug zur Reducers-Bibliothek.
+ 
+** Fazit
+
+Die neue Reducers-Bibliothek in Clojure
+1.5 bietet das Potenzial, bestehende und
+auf =reduce= basierende Operationen zu
+beschleunigen.  Der erste Schritt ist
+das Vermeiden von Overhead für die
+gewöhnlich eingesetzte
+Bedarfsauswertung, der zweite Schritt
+ist eine Parallelisierung der
+Verarbeitung für Daten, die in Form von
+Vektoren vorliegen.
+Clojure-Programmierern und
+-Programmiererinnen steht somit ein
+weiteres Werkzeug für die Entwicklung
+auf Mehrkernarchitekturen zur Verfügung.
+Inwieweit sich die Reducers-Bibliothek
+verbreitet, bleibt abzuwarten.
+
+
+Footnotes: 
+
+[fn:1]  https://github.com/kingtim/nrepl.el
+
+[fn:2]  http://code.google.com/p/counterclockwise/
+
+[fn:3]  http://joyofclojure.com/
+
+[fn:4] http://docs.oracle.com/javase/tutorial/essential/concurrency/forkjoin.html
+
+[fn:5] http://de.slideshare.net/borgesleonardo/clojure-reducers-cljsyd-aug-2012
+
+[fn:6] http://www.infoq.com/presentations/Clojure-Reducers
+
+[fn:7] http://clojure.com/blog/2012/05/15/anatomy-of-reducer.html
+
+[fn:8] http://gigasquidsoftware.com/wordpress/?p=409
+
+[fn:9] https://www.youtube.com/watch?v=ZampUP6PdQA
+
+
+# Local Variables:
+# fill-column: 40
+# ispell-dictionary: "de"
+# End:
+
