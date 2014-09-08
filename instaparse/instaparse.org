@@ -9,22 +9,21 @@ In vielen Bereichen der Programmierung
 haben standardisierte Formate Einzug
 gehalten und die noch vor einigen Jahren
 üblichen spezialisierten Textformate
-verdrängt.  Viele Programme verwenden
-für ihre Konfigurationen Init- oder
+verdrängt.  Programme verwenden für ihre
+Konfigurationen häufig Init- oder
 Properties-Dateien, REST-Services
 sprechen meist JSON, zum Speichern
 tabellarischer Daten bietet sich CSV an,
 und XML erscheint weiterhin
 allgegenwärtig.
 
-Andere Bereiche verwenden weiterhin
+Andere Bereiche verwenden nach wie vor
 Programme aus dem technisch gut
-untersuchten Bereich der Parser.
-Dieser Artikel stellt einige solcher
-Beispiele vor und zeigt, dass nicht
-nur Erfinder neuer Programmiersprachen
-Parser gut gebrauchen können.
-
+untersuchten Bereich der Parser.  Dieser
+Artikel stellt einige solcher Beispiele
+vor und zeigt, dass Parser nicht nur für
+Erfinder neuer Programmiersprachen
+attraktiv sind.
 
 ** Code Beispiele
 
@@ -34,18 +33,17 @@ interaktiven REPL-Sitzung
 nachvollziehen.  Dazu ist es notwendig
 ein Clojure-Projekt zu erzeugen, dessen
 Projektdefinition die Abhängigkeiten
-/instaparse-1.3.2/ (oder neuer),
+/instaparse-1.3.2/,
 /org.clojure/data.xml-0.0.7/ und
 /rhizome-0.2.1/ angibt.  Mit
-Leiningen [fn:1], dem gängigen
-Build-Werkzeug für Clojure-Projekte
+Leiningen[fn:1], dem gängigen
+Build-Werkzeug für Clojure-Projekte,
 erfolgt die Projektdefinition in einer
 Datei /project.clj/:
 
 #+BEGIN_SRC clojure
 (defproject instant-spass "1.0" 
-  :description "Beispiele zum
-Instaparse-Artikel." 
+  :description "Heise Instaparse"
   :dependencies 
   [[org.clojure/clojure "1.6.0"]
    [org.clojure/data.xml "0.0.7"]
@@ -53,184 +51,218 @@ Instaparse-Artikel."
    [rhizome "0.2.1"]])
 #+END_SRC
 
-Nach der Installation kann Leiningen
-ein neues Projekt mit dem Befehl
+Die Anwenderin verwendet Leiningen zum
+Anlegen eines neuen Projekts, in dem
+sie obige Projektdefinition verwendet
+und eine interaktive REPL startet:
+
 
 #+BEGIN_SRC shell
 shell> lein new instant-spass
-#+END_SRC
-
-anlegen und eine einfache REPL mit 
-
-#+BEGIN_SRC shell
+;; project.clj anpassen...
 shell> lein repl
 #+END_SRC
 
 starten.  Komfortablere Umgebungen
-bieten Gorilla-REPL [fn:2], Emacs mit
-CIDER [fn:3], Eclipse mit
-Counterclockwise [fn:4] oder auch
+bieten unter anderem Emacs mit
+CIDER[fn:2], Eclipse mit
+Counterclockwise[fn:3] oder auch
 IntelliJ mit dem noch recht neuen
-Cursive [fn:5] an.
+Cursive[fn:4] an.
 
 Die Formatierung der REPL-Beispiele
-orientiert sich an der mittlerweile
-gängigen Form, den Prompt für die
+orientiert sich an der in [fn:5]
+etablierten Form, den Prompt für die
 Eingaben (etwa "user>") nicht
 anzuzeigen, Ausgaben während der
 Ausführung als Kommentare (erkennbar am
 Semikolon) und den Rückgabewert einem
-";=> " folgend darzustellen.  Diese Form
-wurde zuerst in [fn:6] etabliert.
+";=> " folgend darzustellen.
 
 Zum Nachvollziehen der Beispiele ist
-eine Namespace-Deklaration
-erforderlich, die Instparse und weitere
-Module verfügbar macht:
+eine Namespace-Deklaration erforderlich,
+die Instparse und weitere Module
+verfügbar macht.  Im mit Leiningen
+erzeugten Projekt bietet sich die
+automatisch erzeugte Datei
+=src/instant-spass/core.clj= an:
 
 #+BEGIN_SRC clojure
-(ns de.heise.kamphausen.instaparse
+(ns instant-spass.core
   (:require 
-    [instaparse.core        :as i]
+    [instaparse.core :as i]
     [instaparse.combinators :as c]
-    [clojure.xml            :as xml]))
+    [clojure.xml :as xml]))
 #+END_SRC
 
-Im so erzeugten Namespace sind die
+Im so erzeugten Namespace
+"instant-spass.core" sind die
 wichtigsten Funktionen von Instaparse
-mit =i/...= aufrufbar.
+durch den Import des Namespace
+"instaparse.core" mittels =:require= mit
+dem Präfix =i/= aufrufbar.
 
 ** Leichte Unterhaltung
 
-Zur Einführung dient ein Beispiel zum
-Parsen einfacher Sätze.
+Zur Einführung dient eine Grammatik zum
+Parsen einfacher Sätze.  Dazu definiert
+der folgende Code sowohl einen
+Beispielsatz als auch eine einfache
+kontextfreie Grammatik in Form eines
+String.
   
 #+BEGIN_SRC clojure
-
 (def article-title
   "Instant Spaß mit Instaparse.")
 
 (def title-grammar-1
-  "sentence = words DOT
-   DOT      = '.'
-   words    = word (SPACE word)*
-   SPACE    = ' '
+  "sentence = words dot
+   dot      = '.'
+   words    = word (space word)*
+   space    = ' '
    word     = #'(?U)\\w+'")
 #+END_SRC
 
-Dieser Code definiert sowohl den
-Beispielsatz als auch eine einfache
-kontextfreie Grammatik in Form von
-Strings.  Ein /sentence/ ist definiert
-als /words/ gefolgt von /DOT/.  Die
-Definition des /DOT/ erfolgt im zweiten
-Schrit als ein literaler Punkt.  Da die
-Definition in Form von Strings erfolgt,
-für die die doppelten Anführungszeichen
-eingebetteter Strings maskiert werden
-müssen, erlaubt Instaparse die Angabe
-von Strings mit einfachen
-Anführungszeichen.  Im dritten Schritt
-definiert die Grammatik /words/ als ein
-/word/ optional gefolgt von beliebig
-vielen Vorkommen von /SPACE/ gefolgt
-von /word/.  Das terminale Symbol
-/SPACE/ ist als Leerzeichen definiert
-und für /word/ verwendet die Grammatik
-einen regulären Ausdruck.  Die
-Verwendung von regulären Ausdrücken in
-der Grammatik ist eine sehr praktische
-Erweiterung von Instaparse und darf wie
-auch Strings mit einfachen
-Anführungszeichen erfolgen.  Reguläre
-Ausdrücke in Java erlauben seit Java 7
-die Erweiterung des Wortzeichens ("\w")
-auf alle Unicode-Zeichen durch Angabe
-von "(?U)".
+Die Produktionsregel /sentence/ ist
+definiert als /words/ gefolgt von /dot/.
+Die Definition des /dot/ erfolgt in der
+zweiten Produktion als ein literaler Punkt.
+Damit ist /dot/ ein terminales Symbol.
+Da die Definition in Form von Strings
+erfolgt, für die die doppelten
+Anführungszeichen eingebetteter Strings
+maskiert werden müssen, erlaubt
+Instaparse die Angabe von Strings mit
+einfachen Anführungszeichen.  Das
+erleichtert die Lesbarkeit der Grammatik
+ganz erheblich.
 
-Folgende einfache Hilfsfunktion reicht die
-die Grammatik an die Funktion
-=i/parser= weiter und erzeugt so einen
-Parser, der wie eine normale
-Clojure-Funktion aufgerufen werden
-kann.  Das erklärt das extra Paar
-Klammern.
+In der dritten Regel definiert die
+Grammatik das nicht-terminale Symbol
+/words/ als ein /word/ optional gefolgt
+von beliebig vielen Vorkommen der
+Kombination /space/ und /word/.  Das
+terminale Symbol /space/ ist als
+Leerzeichen definiert und für /word/
+verwendet die Grammatik einen regulären
+Ausdruck.
+
+Die Verwendung von regulären Ausdrücken
+in der Grammatik ist eine praktische
+Erweiterung von Instaparse.  Die
+Notation orientiert sich an der Syntax
+von regulären Ausdrücken in Clojure und
+darf ebenfalls mit einfachen
+Anführungszeichen erfolgen.  Die
+regulären Ausdrücke in Java unterstützen
+seit Java 7 die Erweiterung der
+Zeichenklasse für Wortzeichen (=\w=) auf
+alle Unicode-Zeichen durch Angabe von
+=(?U)=.  Siehe dazu [fn:6].
+
+Die folgende einfache Hilfsfunktion
+reicht eine als Argument übergebene
+Grammatik an die Funktion =i/parser=
+weiter und erzeugt so einen Parser, der
+wie eine Clojure-Funktion aufgerufen
+werden kann.  Das erklärt das extra Paar
+Klammern: Der Rückgabewert von
+=(i/parser grammar)=, der aufrufbare
+Parser, wird wie eine Funktion
+verwendet.
 
 #+BEGIN_SRC clojure
-(defn test-title-parser [grammar]
-  ((i/parser grammar) article-title))
+(defn test-title-parser [grammar title]
+  ((i/parser grammar) title))
 #+END_SRC
 
-Das Ergebnis ist ein Vektor, in dem die
-Symbole aus der kontextfreien Grammatik
-in Keywords umgewandelt sind.
+Das Ergebnis des Parse-Vorgangs ist ein
+Vektor, in dem die Symbole aus der
+kontextfreien Grammatik in Keywords,
+erkennbar am Doppelpunkt, erscheinen.
 
 #+BEGIN_SRC clojure
-(test-title-parser title-grammar-1)
+(test-title-parser title-grammar-1
+                   article-title)
 ;=> [:sentence
      [:words
       [:word "Instant"]
-      [:SPACE " "]
+      [:space " "]
       [:word "Spaß"]
-      [:SPACE " "]
+      [:space " "]
       [:word "mit"]
-      [:SPACE " "]
+      [:space " "]
       [:word "Instaparse"]]
-     [:DOT "."]]
+     [:dot "."]]
 #+END_SRC
 
-Häufig ist der Anwender an
-verschiedenen Symbolen nicht
-interessiert.  Für solche Fälle hält
-Instaparse eine Syntax mit spitzen
+Häufig ist die Anwenderin an
+verschiedenen Symbolen der Grammatik
+nicht interessiert.  Für solche Fälle
+hält Instaparse eine Syntax mit spitzen
 Klammern parat, die in der Grammatik
-angeben, welche Teile im Ergebnis
-zu unterdrücken sind.  Je nachdem, ob
-die spitzen Klammern links oder rechts
-vom Gleichheitszeichen auftauchen, wird
+angeben, welche Teile im Ergebnis zu
+unterdrücken sind.  Je nachdem, ob die
+spitzen Klammern links oder rechts vom
+Gleichheitszeichen auftauchen, wird
 Instaparse entweder den Namen des
-Symbols oder die gefundenen Daten
-filtern.  Im folgenden Beispiel ist der
-literale Punkt unterdrückt, das Symbol
-=:DOT= aber weiterhin Bestandteil des
-Ergebnisses.  Leerzeichen ignoriert
-der Parser hingegen komplett.
+Symbols, die gefundenen Daten oder
+beides filtern.  Im letzteren Fall
+entfällt der komplette Vektor für das
+Symbol.  Der folgende Parser unterdrückt
+den literalen Punkt, das Symbol /:dot/
+hingegen ist weiterhin Bestandteil des
+Ergebnisses.  Leerzeichen (/space/)
+ignoriert der Parser komplett.  Dadurch
+wird das Resultat deutlich kompakter und
+eine weitere Verarbeitung müsste weniger
+Aufwand betreiben, die relevanten Daten
+aus dem Resultat zu extrahieren.
 
 
 #+BEGIN_SRC clojure
 (def title-grammar-2
-  "sentence = words DOT
-   DOT      = <'.'>
-   words    = word (SPACE word)*
-   <SPACE>  = <' '>
+  "sentence = words dot
+   dot      = <'.'>
+   words    = word (space word)*
+   <space>  = <' '>
    <word>   = #'(?U)\\w+'")
 
-(test-title-parser title-grammar-2)
+(test-title-parser title-grammar-2
+                   article-title)
 ;=> [:sentence 
      [:words "Instant" "Spaß" "mit"
       "Instaparse"] 
-     [:DOT]]
+     [:dot]]
 #+END_SRC
 
 ** Unterhaltungsmusik
 
-Sowohl die FreeDB als auch die modernere
-Datenbank MusicBrainz mit ihrem
-FreeDB-Gateway erlauben den Zugriff auf
-die Metadaten vieler Medien in Form von
-Textdateien wie sie in [fn:7]
-beschrieben sind.
+Ein realitätsnahes Beispiel stammt aus
+dem Bereich der Musik: Sowohl die FreeDB
+als auch die modernere Datenbank
+MusicBrainz mit ihrem FreeDB-Gateway
+erlauben den Zugriff auf die Metadaten
+vieler Medien in Form von Textdateien
+wie sie in [fn:7] beschrieben sind.
 
-Das folgende Beispiel lädt zunächst
-eine Beispieldatei von FreeDB herunter
-und definiert dazu eine Grammatik zum
+Der folgende Code lädt zunächst eine
+Beispieldatei von FreeDB herunter und
+definiert dazu eine Grammatik zum
 Einlesen der Daten.  Diese Grammatik
 demonstriert die Verwendung von
-Alternativen mit =|= sowohl der
-Definition der Zeilenenden ("EOL") als
-auch bei der Form einer Zeile
-("line").  Die Ausgabe des
-Parse-Ergebnisses ist stark gekürzt.
+Alternativen mit =|= sowohl in der
+Definition der Zeilenenden (/eol/) als
+auch bei der Form einer Zeile (/line/).
+Eine Zeile darf entweder aus einem
+/comment/ oder einem /discdata/ gefolgt
+von einem Zeilenende bestehen.  Der
+reguläre Ausdruck für /data/ verwendet
+Zeichenbereiche aus der oben zitierten
+Dokumentation.
+
+Die Ausgabe des Parse-Ergebnisses ist
+stark gekürzt.
 
 #+BEGIN_SRC clojure
 (def cddb-example
@@ -240,11 +272,11 @@ Parse-Ergebnisses ist stark gekürzt.
 (def cddb-grammar
   "
 start     = line+
-<line>    = (comment | discdata) EOL
-<EOL>     = <'\n'> | <'\r\n'>
+<line>    = (comment | discdata) eol
+<eol>     = <'\n'> | <'\r\n'>
 <comment> = <#'^#.*'>
-discdata  = name EQ data
-<EQ>      = <'='>
+discdata  = name eq data
+<eq>      = <'='>
 <name>    = #'[A-Z0-9]+'
 <data> = #'[\\x20-\\x7eh\\xA0h-\\xFFh]*'
 ")
@@ -252,33 +284,35 @@ discdata  = name EQ data
 ((i/parser cddb-grammar) cddb-example)
 ;=> [:start
  [:discdata "DISCID" "710b2b08"]
- [:discdata "DTITLE" 
+ [:discdata "DTITLE"
   "Panzerballett / Tank Goodness"]
- [:discdata "DYEAR" "2012"]
- [:discdata "DGENRE" "Fusion"]
- [:discdata "TTITLE0" "Some Skunk Funk"]
- [:discdata "TTITLE1" 
-  "Mustafari Likes Di Carnival"]
+ [:discdata "TTITLE7" "Take Five"]
  [:discdata "TTITLE2" "Giant Steps"]
- [:discdata "EXTD" " YEAR: 2012"]
-; ... Ausgabe gekürzt
+ [:discdata "GENRE" "Fusion"]
+ ;; ... gekürzt
 #+END_SRC
 
-Das Element =:discdata= besteht aus
-Schlüssel-Wert-Paaren und die Idee liegt
-nahe, daraus eine Hash-Map zu erzeugen.
-Zwei Hilfsunktionen erzeugen eine
-Hash-Map aus einem Schlüssel (=name=)
-und dem Wert (=data=) bzw. fassen
-beliebig viele Hash-Maps in einer
-großen mit Hilfe von =into= zusammen.
-Bei der zweiten Hilfsfunktion verdient
-der Argumentvektor ein wenig
-Aufmerksamkeit, der durch Angabe von
-=&= dafür sorgt, dass alle der Funktion
-übergebenen Argumente in eine große
-Liste zusammengefasst (=all-lines=)
-lokal vorliegen.
+Das Element /:discdata/ besteht hier aus
+Paaren aus /name/ und /data/. So liegt
+die Idee nahe, daraus eine Hash-Map zu
+erzeugen.  Das ist das Ziel der
+folgenden Schritte.
+
+Die Hilfsfunktion =discdata->map= erzeugt
+eine Hash-Map aus ihren Argumenten
+=name= und =data=, wobei sie den Namen
+in ein Clojure-Keyword wandelt.
+
+Die zweite Funktion =merge-lines= fasst
+beliebig viele Hash-Maps mit Hilfe der
+Standardfunktion =into= zusammen.  Bei
+dieser Hilfsfunktion verdient der
+Argumentvektor ein wenig Aufmerksamkeit:
+Er sorgt durch Angabe von =&= dafür,
+dass alle der Funktion übergebenen
+Argumente in eine große Liste
+zusammengefasst (=all-lines=) lokal
+vorliegen.
 
 #+BEGIN_SRC clojure
 (defn discdata->map [name data]
@@ -288,26 +322,33 @@ lokal vorliegen.
   (into {} all-lines))
 #+END_SRC
 
-Das Ergebnis eines Instaparse-Parsers
-ist eine gewöhnliche
-Clojure-Datenstruktur, ein Vektor.  Das
-erlaubt die weitere Verarbeitung mit
-den gängigen Mitteln, die Clojure zur
-Verfügung stellt.  Zusätzlich erlaubt
-bereits Instaparse die Transformation
-der Elemente des Ergebnisses durch die
+Wie bereits gesehen, ist das Ergebnis
+eines Instaparse-Parsers eine
+gewöhnliche Clojure-Datenstruktur: ein
+Vektor.  Diese Tatsache erlaubt die
+weitere Verarbeitung mit den gängigen
+Mitteln, die Clojure zur Verfügung
+stellt.  Zusätzlich erlaubt bereits
+Instaparse die Transformation der
+Elemente des Ergebnisses durch die
 Funktion =transform=.  Diese erwartet
 einerseits das Parse-Resultat,
-andererseits eine Map von Symbolnamen
-zu Funktionen, die die Transformation
+andererseits eine Map von Symbolnamen zu
+Funktionen, die die Transformation
 vornehmen sollen.  Für die Symbole
 =:discdata= und =:start= bestimmt das
-folgende Beispiel die soeben
-definierten Funktionen als
-Transformationsfunktionen und ruft
-danach =i/transform= auf.  Das Ergebnis
-ist eine Hash-Map, deren Ausgabe
-erneut verkürzt ist.
+folgende Beispiel die soeben definierten
+Funktionen als
+Transformationsfunktionen.  Deren
+Argumente passen zu der Art und Weise,
+wie Instaparse sie bei der
+Transformation aufruft.  Diese
+Transformer-Definition verwendet der
+Aufruf von =i/transform=.  Das Ergebnis
+ist die angestrebte Hash-Map.  Auch
+diese Ausgabe wurde gekürzt, da die
+Inhalte für das Verständnis des
+Beispiels nicht relevant sind.
 
 #+BEGIN_SRC clojure
 (def cddb-transformers
@@ -319,53 +360,364 @@ erneut verkürzt ist.
        ((i/parser grammar))
        (i/transform cddb-transformers)))
 
-;=> {:DGENRE "Jazz",
+;=> {:DGENRE "Fusion",
      :TTITLE7 "Take Five",
-     :TTITLE6 "The Ikea Trauma",
+     :TTITLE2 "Giant Steps",
      :DTITLE 
      "Panzerballett / Tank Goodness",
-; ... Ausgabe gekürzt
-     :TTITLE2 "Giant Steps",}
+     ;; ... 
+    }
 #+END_SRC
 
+Mit wenigen weiteren Schritten ließen
+sich etwa die Titel zu einem Vektor
+zusammenfassen oder Künstler und
+Albumname anhand der Konvention, durch
+einem Schrägstrich getrennt zu sein,
+separat extrahieren.
+ 
+** Crescendo forte
+
+Gängige Parsergeneratoren wie ANTLR für
+Java oder GNU Bison für C erzeugen den
+Programmcode zum Parsen in einem
+Extraschritt vor dem Kompilieren des
+eigentlichen Programms und werden dazu
+in der Regel in die Build-Werkzeuge wie
+Maven oder Make integriert.  Keines der
+bisherigen Beispiele in diesem Artikel
+hat jedoch einen Neustart der JVM
+notwendig gemacht; in jedem Fall wurde
+ein Parser zur Laufzeit aus einer als
+String vorliegenden Grammatik erzeugt.
+Diese Fähigkeit von Instaparse eröffnet
+interessante Möglichkeiten.  Das Ziel
+der folgenden Beispiele ist es, diese
+Möglichkeiten auszuschöpfen.
+
+Hinter den Kulissen erzeugt Instaparse
+aus dem String eine Clojure Hash-Map.
+Der Namespace "instaparse.combinators"
+enthält die Funktion =ebnf=, die das
+sichtbar macht:
 
 #+BEGIN_SRC clojure
+(c/ebnf "x = y  y = 'z'")
+;=> {:x {:tag :nt, :keyword :y}, 
+     :y {:tag :string, :string "z"}}
 #+END_SRC
+
+Die Tatsache, dass es sich um eine
+Clojure Hash-Map handelt, erlaubt sowohl
+die Erzeugung als auch die Manipulation
+von Grammatiken zur Laufzeit.  Die Namen
+der Produktionsregeln in der Grammatik
+erscheinen in der Hash-Map als
+Schlüssel.  Würde also obigem Resultat
+eine weiteres Schlüssel-Wert-Paar
+hinzugefügt, wäre der Grammatik eine
+weitere Produktionsregel bekannt.
+
+Diese Methode erweist sich als deutlich
+eleganter als etwa die dynamische
+Erzeugung eines Strings für die
+gewünschte Grammatik.
+
+** Apache Logfiles
+
+Anwender des Apache Webservers wissen,
+dass dessen Logfiles konfigurierbar
+sind.  Solchermaßen konfigurierbare Logs
+stellen die interessante Aufgabe, für
+ein bestimmtes Logfile einen passenden
+Parser dynamisch aus der Konfiguration
+zu erzeugen.  Das ist ein geeignetes
+Beispiel für das Ziel, die dynamische
+Erzeugung von Grammatiken auszunutzen.
+
+Apache Logfiles werden häufig sehr groß
+und verlassen damit den Bereich der
+Aufgaben, für die Instaparse gut
+geeignet ist.  Ein Clojure-Programm zum
+Lesen solcher Logs würde die Datei
+sicherlich zeilenweise verarbeiten, etwa
+mit der Funktion =line-seq=, und
+Instaparse lediglich zum Parsen der
+einzelnen Zeilen verarbeiten.
+
+Examplarisch definiert der folgende Code
+eine reduzierte Logfile-Zeile, die
+lediglich aus IP-Adresse und Zeitstempel
+besteht:
 
 #+BEGIN_SRC clojure
+(def apache-log
+  "10.10.30.56 [21/Jul/2014:01:10:25 +0200]")
 #+END_SRC
+
+Die einzelnen Bestandteile können
+separat betrachtet werden.  Eine
+einfache Grammatik für eine IP-Adresse
+erstellt der folgende Code in
+=grammar-ip=.
 
 #+BEGIN_SRC clojure
+(def grammar-ip 
+  "ip   = n d n d n d n
+    <n> = #'[0-9]+'
+    <d> = <'.'>")
 #+END_SRC
+
+Für den Zeitstempel ist eine separate
+Grammatik nur wenig aufwendiger:
 
 #+BEGIN_SRC clojure
+(def grammar-date
+  "
+ datetime = <'['> date <':'> time <' '>
+            tz <']'>
+ date  = #'\\d+/\\w+/\\d+'
+ time  = #'\\d+:\\d+:\\d+'
+ tz    = #'[+-]\\d+'")
 #+END_SRC
+
+Beide Grammatiken unterdrücken die
+syntaktischen Elemente und liefern
+lediglich die Daten mit ihren
+Bezeichnern.  Ein kurzer Test zeigt,
+dass die Grammatiken brauchbare
+Resultate liefern:
 
 #+BEGIN_SRC clojure
+((i/parser grammar-ip) "10.10.30.78")
+;=> [:ip "10" "10" "30" "78"]
+((i/parser grammar-date) 
+ "[22/Jul/2014:14:01:08 +0200]")
+;=> [:datetime 
+     [:date "22/Jul/2014"] 
+     [:time "14:01:08"] [:tz "+0200"]]
 #+END_SRC
+
+Die beispielhafte Logzeile enthält
+Inhalte, die von diesen beiden
+Grammatiken geparst werden können,
+dazwischen steht allerdings noch ein
+Leerzeichen.  Die Funktionen aus dem
+Combinators-Namespace können die
+Grammatik für eine solche Zeile
+erzeugen:
 
 #+BEGIN_SRC clojure
+{:log (c/cat (c/nt :ip) (c/string " ") 
+             (c/nt :datetime))}
 #+END_SRC
 
+Die Funktion =cat= definiert eine
+Aneinanderreihung von Symbolen, =nt=
+erzeugt ein Nicht-Terminal, =string=
+einen literalen String.  Die Keywords
+=:ip= und =:datetime= sind so gewählt,
+dass sie zu den zuvor definierten
+Grammatiken für IP und Zeitstempel
+passen.  Dadurch kann die Funktion
+=merge= die einzelnen Hash-Maps zu
+einer großen zusammenführen, die eine
+Logzeile parsen kann:
+
+#+BEGIN_SRC clojure
+(def combined
+  (merge
+   {:log (c/cat (c/nt :ip) 
+                (c/string " ") 
+                (c/nt :datetime))}
+   (c/ebnf grammar-ip)
+   (c/ebnf grammar-date)))
+
+;; Muss Namen der Startprodukion angeben
+((i/parser combined :start :log)
+ apache-log)
+;=> [:log
+     [:ip "10" "10" "30" "56"]
+     " "
+     [:datetime [:date "21/Jul/2014"] 
+                [:time "01:10:25"] 
+                [:tz "+0200"]]]
+#+END_SRC
+
+Die Verwendung von Funktionen aus dem
+Combinators-Namespace und gängiger
+Hash-Manipulation hat zusammen mit
+vordefinierten Grammatiken für einzelne
+Bestandteile einen Parser erzeugt, der
+einfache Logzeilen verarbeiten kann.
+Dieser Mechanismus lässt sich
+dahingehend erweitern, dass die
+Erzeugung automatisch aus der
+Konfiguration erfolgt.
+
+Die Direktive in der
+Apache-Konfiguration ist "LogFormat"
+und eine passende Konfiguration ist
+
+#+BEGIN_SRC clojure
+(def apache-log-def 
+  "LogFormat \"%a %t\"")
+#+END_SRC
+
+Zum Einlesen der Konfiguration dient
+erneut eine Grammatik:
+
+#+BEGIN_SRC clojure
+(def grammar-log-def
+  "<fmt>       = <'LogFormat '> quote 
+                 declaration quote
+   <quote>     = <'\"'>
+   <declaration> = (char+ | fmtstr)+
+   char        = #'[\\w ]+'
+   <fmtstr>    = datetime | ip
+   ip          = <'%a'>
+   datetime    = <'%t'>")
+
+(defn parse-format-def [fmt-def]
+  ((i/parser grammar-log-def) fmt-def))
+
+(parse-format-def apache-log-def)
+;=> ([:ip] [:char " "] [:datetime])
+#+END_SRC
+
+Alles, was jetzt noch fehlt, ist, den
+zuvor manuell durchgeführten Schritt der
+Definition einer Logzeile mit =cat=,
+=nt= und =merge= automatisch aus dem
+Resultat des Logformat-Parsers zu
+erzeugen.
+
+Zum Erzeugen der passenden
+Subgrammatiken führt der folgende Code
+eine /Multimethod/ ein.  Zu deren
+Beschreibung sei auf die Literatur,
+etwa [fn:8], verwiesen.  Sie bieten
+einen Mechanismus für Polymorphie zur
+Laufzeit, hier basierend auf dem
+Rückgabewert von =first=.
+
+#+BEGIN_SRC clojure
+(defmulti log-decl->grammar first)
+
+(defmethod log-decl->grammar :ip 
+  [x]
+  (c/ebnf grammar-ip))
+
+(defmethod log-decl->grammar :datetime
+  [x]
+  (c/ebnf grammar-date))
+
+(defmethod log-decl->grammar :char
+  [x]
+  nil)
+#+END_SRC
+
+Zwei weitere Hilfsfunktionen erzeugen
+die passenden String-Konstrukte und
+bauen die Grammatik für eine Zeile
+zusammen:
+
+#+BEGIN_SRC clojure
+(defn nt-or-string 
+  "Übersetzt [:char ...] nach string
+und andere zu Nicht-Terminalen."
+  [item]
+  (if (= :char (first item))
+    (c/string (second item))
+    (c/nt (first item))))
+
+(defn line-grammar 
+  "Erzeugt die Map mit der 
+Aneinanderreihung der Elemente."
+  [decls]
+  {:line
+   (apply c/cat 
+          (map nt-or-string decls))})
+#+END_SRC
+
+Abschließend fasst die folgende
+Funktion =logdef->parser= alle
+vorbereiteten Funktionen und
+Grammatiken zusammen und erzeugt
+zur Laufzeit aus der übergebenen
+Log-Konfiguration =logdef= einen
+Parser, der Logzeilen mit diesem Format
+einlesen kann:
+
+#+BEGIN_SRC clojure
+(defn logdef->parser [logdef]
+  (-> logdef
+      parse-format-def
+      declaration->parser))
+#+END_SRC
+
+Das folgende Beispiel zeigt das
+Zusammenspiel aller Funktionen in
+voller Pracht, indem es ein Log-Format
+parst, daraus einen neuen Parser
+erzeugt und diesen zum Parsen einer
+Logzeile anwendet.
+
+#+BEGIN_SRC clojure
+((logdef->parser apache-log-def) 
+ apache-log)
+;=> [:line
+     [:ip "10" "10" "30" "56"]
+     " "
+     [:datetime [:date "21/Jul/2014"] 
+                [:time "01:10:25"] 
+                [:tz "+0200"]]]
+#+END_SRC
 
 ** Fazit
+
+Instaparse ist eine äußerst praktische
+Bibliothek, mit deren Hilfe das
+Schreiben von Parsern leicht von der
+Hand geht.  Zudem erlaubt Instaparse die
+Manipulation und Erzeugung von
+Grammatiken zur Laufzeit, was
+interessante Anwendungen eröffnet.  Die
+Bibliothek bietet noch verschiedene
+Erweiterungen und Hilfsmittel, die
+dieser Artikel nicht beschrieben hat,
+wie etwa PEG-Erweiterungen,
+automatische Whitespace-Behandlung,
+sowie einen partiellen und einen
+totalen Parse-Modus.
+
+In diesem Sinne...
+
+#+BEGIN_SRC clojure
+(i/visualize 
+  ((i/parser title-grammar-1)
+   "Viel Spaß mit Instaparse."))
+#+END_SRC
+
+[[file:graph.png]]
 
 * Footnotes
 
 [fn:1] http://leiningen.org/
 
-[fn:2] http://gorilla-repl.org/
+[fn:2] https://github.com/clojure-emacs/cider/
 
-[fn:3] https://github.com/clojure-emacs/cider/
+[fn:3] http://code.google.com/p/counterclockwise/
 
-[fn:4] http://code.google.com/p/counterclockwise/
+[fn:4] https://cursiveclojure.com/
 
-[fn:5] https://cursiveclojure.com/
-
-[fn:6] http://joyofclojure.com/
+[fn:5] http://joyofclojure.com/
 
 [fn:7] http://www.robots.ox.ac.uk/~spline/cddb-howto.txt
 
+[fn:6] http://docs.oracle.com/javase/7/docs/api/java/util/regex/Pattern.html#UNICODE_CHARACTER_CLASS
+
+[fn:8] http://www.clojure-buch.de
 
 
 
